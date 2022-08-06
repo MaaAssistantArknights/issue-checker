@@ -83,6 +83,7 @@ function run() {
             }
             // Load our regex rules from the configuration path
             const [labelParams, commentParams] = yield getLabelCommentRegexes(client, configPath);
+            const issueLabels = yield getLabels(client, issue_number);
             let issueContent = "";
             if (includeTitle === 1) {
                 issueContent += `${issue_title}\n\n`;
@@ -92,12 +93,14 @@ function run() {
             const [addCommentItems, removeCommentItems] = itemAnalyze(commentParams, issueContent);
             if (addLabelItems.length > 0) {
                 console.log(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`);
-                addLabels(client, issue_number, addLabelItems);
+                addLabels(client, issue_number, addLabelItems.filter(label => !issueLabels.has(label)));
             }
             if (syncLabels) {
                 removeLabelItems.forEach(function (label, index) {
-                    console.log(`Removing label ${label} from issue #${issue_number}`);
-                    removeLabel(client, issue_number, label);
+                    if (issueLabels.has(label)) {
+                        console.log(`Removing label ${label} from issue #${issue_number}`);
+                        removeLabel(client, issue_number, label);
+                    }
                 });
             }
             if (addCommentItems.length > 0) {
@@ -301,9 +304,9 @@ function getLabels(client, issue_number) {
             console.log('Unable to load labels. Exiting...');
             process.exit(1);
         }
-        const labels = [];
+        const labels = new Set();
         for (let i = 0; i < Object.keys(data).length; i++) {
-            labels.push(data[i].name);
+            labels.add(data[i].name);
         }
         return labels;
     });

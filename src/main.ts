@@ -54,6 +54,10 @@ async function run(): Promise<void> {
       client,
       configPath
     );
+    const issueLabels: Set<string> = await getLabels(
+      client,
+      issue_number
+    );
 
     let issueContent = ""
     if (includeTitle === 1) {
@@ -73,13 +77,15 @@ async function run(): Promise<void> {
 
     if (addLabelItems.length > 0) {
       console.log(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`)
-      addLabels(client, issue_number, addLabelItems)
+      addLabels(client, issue_number, addLabelItems.filter(label => !issueLabels.has(label)))
     }
 
     if (syncLabels) {
       removeLabelItems.forEach(function (label, index) {
-        console.log(`Removing label ${label} from issue #${issue_number}`)
-        removeLabel(client, issue_number, label)
+        if (issueLabels.has(label)) {
+          console.log(`Removing label ${label} from issue #${issue_number}`)
+          removeLabel(client, issue_number, label)
+        }
       });
     }
 
@@ -309,7 +315,7 @@ function checkRegexes(issue_body: string, regexes: string[]): boolean {
 async function getLabels(
   client: any,
   issue_number: number,
-): Promise<string[]> {
+): Promise<Set<string>> {
   const response = await client.rest.issues.listLabelsOnIssue({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
@@ -320,9 +326,9 @@ async function getLabels(
     console.log('Unable to load labels. Exiting...')
     process.exit(1);
   }
-  const labels: string[] = [];
+  const labels: Set<string> = new Set();
   for (let i = 0; i < Object.keys(data).length; i++) {
-    labels.push(data[i].name)
+    labels.add(data[i].name)
   }
   return labels;
 }
@@ -332,7 +338,6 @@ async function addLabels(
   issue_number: number,
   labels: string[]
 ) {
-
   await client.rest.issues.addLabels({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
