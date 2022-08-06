@@ -168,10 +168,6 @@ function getIssueOrPullRequestTitle() {
     }
     return;
 }
-function regexifyConfigPath(configPath, version) {
-    var lastIndex = configPath.lastIndexOf('.');
-    return `${configPath.substring(0, lastIndex)}-v${version}.yml`;
-}
 function getLabelCommentRegexes(client, configurationPath) {
     return __awaiter(this, void 0, void 0, function* () {
         const response = yield client.rest.repos.getContent({
@@ -187,11 +183,10 @@ function getLabelCommentRegexes(client, configurationPath) {
         }
         const configurationContent = Buffer.from(data.content, 'base64').toString('utf8');
         const configObject = yaml.load(configurationContent);
-        // transform `any` => `Map<string, Map<string, string[]>>` or throw if yaml is malformed:
+        // transform `any` => `Map<string, [string, string[], string[]]>` or throw if yaml is malformed:
         return getParamsMapFromObject(configObject);
     });
 }
-////////////////////
 function getItemParamsFromItem(item) {
     const itemMap = new Map();
     for (const key in item) {
@@ -248,11 +243,6 @@ function getItemParamsFromItem(item) {
 }
 function getItemParamsMapFromObject(configObject) {
     const itemParams = new Map();
-    // if (!Map.isMap(configObject)) {
-    //   throw Error(
-    //     `item should be a Map`
-    //   );
-    // }
     for (const item of configObject) {
         const [itemName, itemContent, itemRegexes, itemAvoid] = getItemParamsFromItem(item);
         itemParams.set(itemContent, [itemName, itemRegexes, itemAvoid]);
@@ -275,19 +265,18 @@ function getParamsMapFromObject(configObject) {
     }
     return [labelParams, commentParams];
 }
-////////////////////
 function checkRegexes(issue_body, regexes) {
-    var found;
+    var matched;
     // If several regex entries are provided we require all of them to match for the label to be applied.
     for (const regEx of regexes) {
         const isRegEx = regEx.match(/^\/(.+)\/(.*)$/);
         if (isRegEx) {
-            found = issue_body.match(new RegExp(isRegEx[1], isRegEx[2]));
+            matched = issue_body.match(new RegExp(isRegEx[1], isRegEx[2]));
         }
         else {
-            found = issue_body.match(regEx);
+            matched = issue_body.match(regEx);
         }
-        if (!found) {
+        if (!matched) {
             return false;
         }
     }

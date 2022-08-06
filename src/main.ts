@@ -167,11 +167,6 @@ function getIssueOrPullRequestTitle(): string | undefined {
   return;
 }
 
-function regexifyConfigPath(configPath: string, version: string) {
-  var lastIndex = configPath.lastIndexOf('.')
-  return `${configPath.substring(0, lastIndex)}-v${version}.yml`
-}
-
 async function getLabelCommentRegexes(
   client: any,
   configurationPath: string
@@ -192,11 +187,9 @@ async function getLabelCommentRegexes(
   const configurationContent: string = Buffer.from(data.content, 'base64').toString('utf8');
   const configObject: any = yaml.load(configurationContent);
 
-  // transform `any` => `Map<string, Map<string, string[]>>` or throw if yaml is malformed:
+  // transform `any` => `Map<string, [string, string[], string[]]>` or throw if yaml is malformed:
   return getParamsMapFromObject(configObject);
 }
-
-////////////////////
 
 function getItemParamsFromItem(item: any): [string, string, string[], string[]] {
   const itemMap: Map<string, any> = new Map();
@@ -255,22 +248,15 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
   const itemContent: string = itemMap.has("content") ? itemMap.get("content") : itemName;
   const itemRegexes: string[] = itemMap.get("regexes");
   const itemAvoid: string[] = itemMap.has("disabled-if") ? itemMap.get("disabled-if") : [];
-
   return [itemName, itemContent, itemRegexes, itemAvoid];
 }
 
 function getItemParamsMapFromObject(configObject: any): Map<string, [string, string[], string[]]> {
   const itemParams: Map<string, [string, string[], string[]]> = new Map();
-  // if (!Map.isMap(configObject)) {
-  //   throw Error(
-  //     `item should be a Map`
-  //   );
-  // }
   for (const item of configObject) {
     const [itemName, itemContent, itemRegexes, itemAvoid]: [string, string, string[], string[]] = getItemParamsFromItem(item);
     itemParams.set(itemContent, [itemName, itemRegexes, itemAvoid]);
   }
-
   return itemParams;
 }
 
@@ -288,25 +274,23 @@ function getParamsMapFromObject(configObject: any): [Map<string, [string, string
       );
     }
   }
-
   return [labelParams, commentParams];
 }
 
-////////////////////
 function checkRegexes(issue_body: string, regexes: string[]): boolean {
-  var found;
+  var matched;
 
   // If several regex entries are provided we require all of them to match for the label to be applied.
   for (const regEx of regexes) {
     const isRegEx = regEx.match(/^\/(.+)\/(.*)$/)
 
     if (isRegEx) {
-      found = issue_body.match(new RegExp(isRegEx[1], isRegEx[2]))
+      matched = issue_body.match(new RegExp(isRegEx[1], isRegEx[2]))
     } else {
-      found = issue_body.match(regEx)
+      matched = issue_body.match(regEx)
     }
 
-    if (!found) {
+    if (!matched) {
       return false;
     }
   }
