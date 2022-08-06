@@ -102,20 +102,14 @@ function itemAnalyze(
   issueContent: string,
 ): [string[], string[]] {
   const addItems: string[] = []
-  const addItemNames: string[] = []
+  const addItemNames: Set<string> = new Set();
   const removeItems: string[] = []
 
   for (const [item, [itemName, globs, avoidItems]] of itemParams.entries()) {
-    let removeCurrentItem = false;
-    for (const avoidItem of avoidItems) {
-      if (avoidItem in addItemNames) {
-        removeCurrentItem = true;
-        break;
-      }
-    }
-    if (!removeCurrentItem && checkRegexes(issueContent, globs)) {
+    if (avoidItems.filter(avoidItem => addItemNames.has(avoidItem)).length == 0 &&
+      checkRegexes(issueContent, globs)) {
       addItems.push(item);
-      addItemNames.push(itemName);
+      addItemNames.add(itemName);
     }
     else {
       removeItems.push(item);

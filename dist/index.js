@@ -117,19 +117,13 @@ function run() {
 }
 function itemAnalyze(itemParams, issueContent) {
     const addItems = [];
-    const addItemNames = [];
+    const addItemNames = new Set();
     const removeItems = [];
     for (const [item, [itemName, globs, avoidItems]] of itemParams.entries()) {
-        let removeCurrentItem = false;
-        for (const avoidItem of avoidItems) {
-            if (avoidItem in addItemNames) {
-                removeCurrentItem = true;
-                break;
-            }
-        }
-        if (!removeCurrentItem && checkRegexes(issueContent, globs)) {
+        if (avoidItems.filter(avoidItem => addItemNames.has(avoidItem)).length == 0 &&
+            checkRegexes(issueContent, globs)) {
             addItems.push(item);
-            addItemNames.push(itemName);
+            addItemNames.add(itemName);
         }
         else {
             removeItems.push(item);
