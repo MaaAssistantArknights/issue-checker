@@ -127,7 +127,7 @@ function itemAnalyze(itemParams, issueContent) {
                 break;
             }
         }
-        if (!removeCurrentItem || checkRegexes(issueContent, globs)) {
+        if (!removeCurrentItem && checkRegexes(issueContent, globs)) {
             addItems.push(item);
             addItemNames.push(itemName);
         }
