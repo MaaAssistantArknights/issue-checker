@@ -65,19 +65,20 @@ async function run(): Promise<void> {
     }
     issueContent += issue_body
 
-    const [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
+    var [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
       labelParams,
       issueContent,
     );
 
-    const [addCommentItems, removeCommentItems]: [string[], string[]] = itemAnalyze(
+    var [addCommentItems, removeCommentItems]: [string[], string[]] = itemAnalyze(
       commentParams,
       issueContent,
     );
 
+    addLabelItems = addLabelItems.filter(label => !issueLabels.has(label));
     if (addLabelItems.length > 0) {
       console.log(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`)
-      addLabels(client, issue_number, addLabelItems.filter(label => !issueLabels.has(label)))
+      addLabels(client, issue_number, addLabelItems)
     }
 
     if (syncLabels) {

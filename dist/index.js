@@ -89,11 +89,12 @@ function run() {
                 issueContent += `${issue_title}\n\n`;
             }
             issueContent += issue_body;
-            const [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent);
-            const [addCommentItems, removeCommentItems] = itemAnalyze(commentParams, issueContent);
+            var [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent);
+            var [addCommentItems, removeCommentItems] = itemAnalyze(commentParams, issueContent);
+            addLabelItems = addLabelItems.filter(label => !issueLabels.has(label));
             if (addLabelItems.length > 0) {
                 console.log(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`);
-                addLabels(client, issue_number, addLabelItems.filter(label => !issueLabels.has(label)));
+                addLabels(client, issue_number, addLabelItems);
             }
             if (syncLabels) {
                 removeLabelItems.forEach(function (label, index) {
