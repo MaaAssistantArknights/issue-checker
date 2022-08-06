@@ -175,7 +175,7 @@ async function getLabelCommentRegexes(
   client: any,
   configurationPath: string
 ): Promise<[Map<string, [string, string[], string[]]>, Map<string, [string, string[], string[]]>]> {
-  const response = await client.rest.repos.getContents({
+  const response = await client.rest.repos.getContent({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
     path: configurationPath,
@@ -198,62 +198,62 @@ async function getLabelCommentRegexes(
 ////////////////////
 
 function getItemParamsFromItem(item: any): [string, string, string[], string[]] {
-  // if (!Map.isMap(item)) {
-  //   throw Error(
-  //     `item should be a Map`
-  //   );
-  // }
-  var itemName: string;
-  if (!item.has("name")) {
+  const itemMap: Map<string, any> = new Map();
+  for (const key in item) {
+    if (key == "name") {
+      if (typeof item[key] === 'string') {
+        itemMap.set(key, item[key]);
+      } else {
+        throw Error(
+          `found unexpected type for item name \`${item[key]}\` (should be string)`
+        );
+      }
+    } else if (key == "content") {
+      if (typeof item[key] === 'string') {
+        itemMap.set(key, item[key]);
+      } else {
+        throw Error(
+          `found unexpected type for \`content\` in some item (should be string)`
+        );
+      }
+    } else if (key == "regexes") {
+      if (typeof item[key] === 'string') {
+        itemMap.set(key, [item[key]]);
+      } else if (Array.isArray(item[key])) {
+        itemMap.set(key, item[key]);
+      } else {
+        throw Error(
+          `found unexpected type for \`regexes\` in some item (should be string or array of regex)`
+        );
+      }
+    } else if (key == "disabled-if") {
+      if (typeof item[key] === 'string') {
+        itemMap.set(key, [item[key]]);
+      } else if (Array.isArray(item[key])) {
+        itemMap.set(key, item[key]);
+      } else {
+        throw Error(
+          `found unexpected type for \`disabled-if\` in some item (should be string)`
+        );
+      }
+    }
+  }
+
+  if (!itemMap.has("name")) {
     throw Error(
       `some item's name is missing`
     );
-  } else if (typeof item.get("name") === 'string') {
-    itemName = item.get("name");
-  } else {
-    throw Error(
-      `found unexpected type for item name \`${item.get("name")}\` (should be string)`
-    );
   }
-
-  var itemContent: string;
-  if (!item.has("content")) {
-    itemContent = "";
-  } else if (typeof item.get("content") === 'string') {
-    itemContent = item.get("content");
-  } else {
-    throw Error(
-      `found unexpected type for \`content\` in item ${itemName} (should be string)`
-    );
-  }
-
-  var itemRegexes: string[];
-  if (!item.has("regexes")) {
+  if (!itemMap.has("regexes")) {
     throw Error(
       `some item's regexes are missing`
     );
-  } else if (typeof item.get("regexes") === 'string') {
-    itemRegexes = [item.get("regexes")];
-  } else if (Array.isArray(item.get("regexes"))) {
-    itemRegexes = item.get("regexes");
-  } else {
-    throw Error(
-      `found unexpected type for \`regexes\` in item ${itemName} (should be string or array of regex)`
-    );
   }
 
-  var itemAvoid: string[];
-  if (!item.has("disabled-if")) {
-    itemAvoid = [""];
-  } else if (typeof item.get("disabled-if") === 'string') {
-    itemAvoid = [item.get("disabled-if")];
-  } else if (Array.isArray(item.get("disabled-if"))) {
-    itemAvoid = item.get("disabled-if");
-  } else {
-    throw Error(
-      `found unexpected type for \`disabled-if\` in item ${itemName} (should be string or array of regex)`
-    );
-  }
+  const itemName: string = itemMap.get("name");
+  const itemContent: string = itemMap.has("content") ? itemMap.get("content") : itemName;
+  const itemRegexes: string[] = itemMap.get("regexes");
+  const itemAvoid: string[] = itemMap.has("disabled-if") ? itemMap.get("disabled-if") : [];
 
   return [itemName, itemContent, itemRegexes, itemAvoid];
 }
