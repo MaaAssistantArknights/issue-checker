@@ -365,7 +365,7 @@ async function addComment(
   issue_number: number,
   body: string
 ) {
-  await client.rest.issues.addComment({
+  await client.rest.issues.createComment({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
     issue_number: issue_number,

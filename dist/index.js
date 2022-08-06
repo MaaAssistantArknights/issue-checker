@@ -336,7 +336,7 @@ function removeLabel(client, issue_number, name) {
 }
 function addComment(client, issue_number, body) {
     return __awaiter(this, void 0, void 0, function* () {
-        yield client.rest.issues.addComment({
+        yield client.rest.issues.createComment({
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
             issue_number: issue_number,
