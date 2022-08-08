@@ -35,6 +35,9 @@ jobs:
         run: |
           npm run build
 
+      - name: Set git environment
+        run: git config diff.nodiff.command true
+
       - name: Compare the expected and actual dist/ directories
         run: |
           if [ "$(git diff --ignore-space-at-eol dist/ ':(exclude)dist/index.js.map' | wc -l)" -gt "0" ]; then
