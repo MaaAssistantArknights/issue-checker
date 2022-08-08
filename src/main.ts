@@ -170,7 +170,7 @@ function getEventDetails(
 ): [number, string, string, string] {
   try {
     return [
-      issue.number,
+      issue.number ? issue.number : NaN,
       issue.title ? issue.title : '',
       issue.body ? issue.body : '',
       issue.author_association ? issue.author_association : ''
@@ -191,7 +191,12 @@ function getEventInfo(): [number, string, string, string] {
   ) {
     return getEventDetails(github.context.payload.pull_request, 'pull request')
   } else if (eventName === 'issue_comment') {
-    return getEventDetails(github.context.payload.comment, 'issue comment')
+    const issue = getEventDetails(github.context.payload.issue, 'issue')
+    const comment = getEventDetails(
+      github.context.payload.comment,
+      'issue comment'
+    )
+    return [issue[0], comment[1], comment[2], comment[3]]
   }
   throw Error(`could not get event from context`)
 }
