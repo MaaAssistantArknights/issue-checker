@@ -328,7 +328,7 @@ async function getLabels(
       issue_number: issue_number,
     });
     if (response.status != 200) {
-      core.warning("Unable to load labels.");
+      core.warning(`Unable to load labels, status ${response.status}`);
     } else {
       const data = response.data
       for (let i = 0; i < Object.keys(data).length; i++) {
@@ -337,7 +337,7 @@ async function getLabels(
     }
     return labels;
   } catch (error) {
-    core.warning("Unable to load labels.");
+    core.warning(`Unable to load labels. (${error})`);
     return labels;
   }
 }
@@ -355,10 +355,10 @@ async function addLabels(
       labels: labels
     });
     if (response.status != 200) {
-      core.warning("Unable to add labels.");
+      core.warning(`Unable to add labels, status ${response.status}`);
     }
   } catch (error) {
-    core.warning("Unable to add labels.");
+    core.warning(`Unable to add labels. (${error})`);
   }
 }
 
@@ -375,10 +375,10 @@ async function removeLabel(
       name: name
     });
     if (response.status != 200) {
-      core.warning(`Unable to remove label ${name}.`);
+      core.warning(`Unable to remove label ${name}, status ${response.status}`);
     }
   } catch (error) {
-    core.warning(`Unable to remove label ${name}.`);
+    core.warning(`Unable to remove label ${name}. (${error})`);
   }
 }
 
@@ -395,10 +395,10 @@ async function addComment(
       body: body
     });
     if (response.status != 200) {
-      core.warning(`Unable to add comment ${body}.`);
+      core.warning(`Unable to add comment ${body}, status ${response.status}`);
     }
   } catch (error) {
-    core.warning(`Unable to add comment ${body}.`);
+    core.warning(`Unable to add comment ${body}. (${error})`);
   }
 }
 

@@ -301,7 +301,7 @@ function getLabels(client, issue_number) {
                 issue_number: issue_number,
             });
             if (response.status != 200) {
-                core.warning("Unable to load labels.");
+                core.warning(`Unable to load labels, status ${response.status}`);
             }
             else {
                 const data = response.data;
@@ -312,7 +312,7 @@ function getLabels(client, issue_number) {
             return labels;
         }
         catch (error) {
-            core.warning("Unable to load labels.");
+            core.warning(`Unable to load labels. (${error})`);
             return labels;
         }
     });
@@ -327,11 +327,11 @@ function addLabels(client, issue_number, labels) {
                 labels: labels
             });
             if (response.status != 200) {
-                core.warning("Unable to add labels.");
+                core.warning(`Unable to add labels, status ${response.status}`);
             }
         }
         catch (error) {
-            core.warning("Unable to add labels.");
+            core.warning(`Unable to add labels. (${error})`);
         }
     });
 }
@@ -345,11 +345,11 @@ function removeLabel(client, issue_number, name) {
                 name: name
             });
             if (response.status != 200) {
-                core.warning(`Unable to remove label ${name}.`);
+                core.warning(`Unable to remove label ${name}, status ${response.status}`);
             }
         }
         catch (error) {
-            core.warning(`Unable to remove label ${name}.`);
+            core.warning(`Unable to remove label ${name}. (${error})`);
         }
     });
 }
@@ -363,11 +363,11 @@ function addComment(client, issue_number, body) {
                 body: body
             });
             if (response.status != 200) {
-                core.warning(`Unable to add comment ${body}.`);
+                core.warning(`Unable to add comment ${body}, status ${response.status}`);
             }
         }
         catch (error) {
-            core.warning(`Unable to add comment ${body}.`);
+            core.warning(`Unable to add comment ${body}. (${error})`);
         }
     });
 }
