@@ -15,79 +15,69 @@ async function run(): Promise<void> {
     const includeTitle: number = parseInt(core.getInput('include-title', { required: false }));
     const syncLabels: number = parseInt(core.getInput('sync-labels', { required: false }));
 
-    const issue_number = getIssueOrPullRequestNumber();
-    if (issue_number === undefined) {
-      core.warning("Could not get issue or pull request number from context. Exiting...");
-      return;
-    }
-    core.debug(`typeof issue_number: ${typeof issue_number}`)
-    core.debug(`issue_number: ${issue_number}`)
-
-    const issue_body = getIssueOrPullRequestBody();
-    if (issue_body === undefined) {
-      core.warning("Could not get issue or pull request body from context. Exiting...");
-      return;
-    }
-    core.debug(`typeof issue_body: ${typeof issue_body}`)
-    core.debug(`issue_body: ${issue_body}`)
-
-    const issue_title = getIssueOrPullRequestTitle();
-    if (issue_title === undefined) {
-      core.warning("Could not get issue or pull request title from context. Exiting...");
-      return;
-    }
-    core.debug(`typeof issue_title: ${typeof issue_title}`)
-    core.debug(`issue_title: ${issue_title}`)
+    const [issue_number, issue_title, issue_body]:
+      [number, string, string] = getIssueOrPullRequestInfo();
 
     // A client to load data from GitHub
     const client = github.getOctokit(token);
 
     // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
     if (notBefore) {
-      const issue = client.rest.issues.get({
-        owner: github.context.repo.owner,
-        repo: github.context.repo.repo,
-        issue_number: issue_number,
-      });
-      const issueCreatedAt = Date.parse((await issue).data.created_at)
-      if (issueCreatedAt < notBefore) {
-        core.info("Issue is before `notBefore` configuration parameter. Exiting...")
+      const issueCreatedAt: number = Date.parse(github.context.payload.created_at)
+      core.info(`Issue is created at ${github.context.payload.created_at}.`)
+      if (Number.isNaN(issueCreatedAt)) {
+        throw Error(
+          `Cannot deduce \`issueCreatedAt\` from ${github.context.payload.created_at}.`
+        );
+      } else if (issueCreatedAt < notBefore) {
+        core.notice("Issue is before `notBefore` configuration parameter. Exiting...");
         return;
       }
+    } else {
+      core.debug(`Parameter \`notBefore\` is not set or is set invalid.`);
     }
 
     // Load our regex rules from the configuration path
-    const [labelParams, commentParams]:
-      Readonly<[item_t, item_t]> =
-      await getLabelCommentRegexes(
+    const itemsPromise: Promise<[item_t, item_t]> = getLabelCommentRegexes(
       client,
       configPath
     );
-    const issueLabels: Set<string> = await getLabels(
+    // Get the labels have been added to the current issue
+    const labelsPromise: Promise<Set<string>> = getLabels(
       client,
       issue_number
     );
 
+    const [labelParams, commentParams]: [item_t, item_t] = await itemsPromise;
+    const issueLabels: Set<string> = await labelsPromise;
+
     let issueContent: string = ""
-    if (includeTitle === 1 && issue_title != null) {
+    if (includeTitle === 1) {
       issueContent += `${issue_title}\n\n`;
     }
-    if (issue_body != null) {
-      issueContent += issue_body;
-    }
+    issueContent += issue_body;
 
     core.info(`Content of issue #${issue_number}:\n${issueContent}`)
 
+    // labels to be added & removed
     var [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
       labelParams,
       issueContent,
     );
 
+    // comments to be added & removed(no sense)
     var [addCommentItems, removeCommentItems]: [string[], string[]] = itemAnalyze(
       commentParams,
       issueContent,
     );
 
+    if (core.isDebug()) {
+      core.debug(`labels have been added: [${Array.from(issueLabels)}]`);
+      core.debug(`labels to be added: [${addLabelItems.toString()}]`);
+      core.debug(`labels to be removed: [${removeLabelItems.toString()}]`);
+    }
+
+    // some may have been added, remove them
     addLabelItems = addLabelItems.filter(label => !issueLabels.has(label));
     if (addLabelItems.length > 0) {
       core.info(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`)
@@ -96,6 +86,7 @@ async function run(): Promise<void> {
 
     if (syncLabels) {
       removeLabelItems.forEach(function (label, index) {
+        // skip labels that have not been added
         if (issueLabels.has(label)) {
           core.info(`Removing label ${label} from issue #${issue_number}`)
           removeLabel(client, issue_number, label)
@@ -138,46 +129,49 @@ function itemAnalyze(
   return [addItems, removeItems];
 }
 
-function getIssueOrPullRequestNumber(): number | undefined {
+function getIssueOrPullRequestInfo():
+  [number, string, string] {
   const issue = github.context.payload.issue;
   if (issue) {
-    return issue.number;
+    if (issue.title === undefined) {
+      throw Error(
+        `could not get issue title from context`
+      );
+    }
+    if (issue.body === undefined) {
+      throw Error(
+        `could not get issue body from context`
+      );
+    }
+    return [
+      issue.number,
+      issue.title === null ? "" : issue.title,
+      issue.body === null ? "" : issue.body,
+    ];
   }
 
   const pull_request = github.context.payload.pull_request;
   if (pull_request) {
-    return pull_request.number;
+    if (pull_request.title === undefined) {
+      throw Error(
+        `could not get pull request title from context`
+      );
+    }
+    if (pull_request.body === undefined) {
+      throw Error(
+        `could not get pull request body from context`
+      );
+    }
+    return [
+      pull_request.number,
+      pull_request.title === null ? "" : pull_request.title,
+      pull_request.body === null ? "" : pull_request.body,
+    ];
   }
 
-  return;
-}
-
-function getIssueOrPullRequestBody(): string | undefined {
-  const issue = github.context.payload.issue;
-  if (issue) {
-    return issue.body;
-  }
-
-  const pull_request = github.context.payload.pull_request;
-  if (pull_request) {
-    return pull_request.body;
-  }
-
-  return;
-}
-
-function getIssueOrPullRequestTitle(): string | undefined {
-  const issue = github.context.payload.issue;
-  if (issue) {
-    return issue.title;
-  }
-
-  const pull_request = github.context.payload.pull_request;
-  if (pull_request) {
-    return pull_request.title;
-  }
-
-  return;
+  throw Error(
+    `could not get issue or pull request number from context`
+  );
 }
 
 async function getLabelCommentRegexes(
@@ -194,7 +188,7 @@ async function getLabelCommentRegexes(
   const data: any = response.data
   if (!data.content) {
     throw Error(
-      `The configuration path provided is not a valid file. Exiting`
+      `the configuration path provides an invalid file`
     );
   }
 
@@ -222,7 +216,7 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
       } else {
         const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
         throw Error(
-          `found unexpected type for \`content\` in ${itemRepr} (should be string)`
+          `found unexpected type of field \`content\` in ${itemRepr} (should be string)`
         );
       }
     } else if (key == "regexes") {
@@ -233,7 +227,7 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
       } else {
         const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
         throw Error(
-          `found unexpected type for \`regexes\` in ${itemRepr} (should be string or array of regex)`
+          `found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`
         );
       }
     } else if (key == "disabled-if") {
@@ -244,7 +238,7 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
       } else {
         const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
         throw Error(
-          `found unexpected type for \`disabled-if\` in ${itemRepr} (should be string or array of string)`
+          `found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`
         );
       }
     }
@@ -272,7 +266,8 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
 function getItemParamsMapFromObject(configObject: any): item_t {
   const itemParams: item_t = new Map();
   for (const item of configObject) {
-    const [itemName, itemContent, itemRegexes, itemAvoid]: [string, string, string[], string[]] = getItemParamsFromItem(item);
+    const [itemName, itemContent, itemRegexes, itemAvoid]:
+      [string, string, string[], string[]] = getItemParamsFromItem(item);
     itemParams.set(itemContent, [itemName, itemRegexes, itemAvoid]);
   }
   return itemParams;
@@ -357,9 +352,7 @@ async function addLabels(
       core.warning("Unable to add labels.");
     }
   } catch (error) {
-    throw Error(
-      `unable to add labels`
-    );
+    core.warning("Unable to add labels.");
   }
 }
 
@@ -379,9 +372,7 @@ async function removeLabel(
       core.warning(`Unable to remove label ${name}.`);
     }
   } catch (error) {
-    throw Error(
-      `unable to remove label ${name}`
-    );
+    core.warning(`Unable to remove label ${name}.`);
   }
 }
 
@@ -401,9 +392,7 @@ async function addComment(
       core.warning(`Unable to add comment ${body}.`);
     }
   } catch (error) {
-    throw Error(
-      `unable to add comment ${body}`
-    );
+    core.warning(`Unable to add comment ${body}.`);
   }
 }
 
