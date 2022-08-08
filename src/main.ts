@@ -9,11 +9,11 @@ type item_t = Map<string, [string, string[], string[]]>;
 async function run(): Promise<void> {
   try {
     // Configuration parameters
-    const configPath = core.getInput('configuration-path', { required: true });
-    const token = core.getInput('repo-token', { required: true });
-    const notBefore = Date.parse(core.getInput('not-before', { required: false }));
-    const includeTitle = parseInt(core.getInput('include-title', { required: false }));
-    const syncLabels = parseInt(core.getInput('sync-labels', { required: false }));
+    const configPath: string = core.getInput('configuration-path', { required: true });
+    const token: string = core.getInput('repo-token', { required: true });
+    const notBefore: number = Date.parse(core.getInput('not-before', { required: false }));
+    const includeTitle: number = parseInt(core.getInput('include-title', { required: false }));
+    const syncLabels: number = parseInt(core.getInput('sync-labels', { required: false }));
 
     const issue_number = getIssueOrPullRequestNumber();
     if (issue_number === undefined) {
@@ -68,12 +68,14 @@ async function run(): Promise<void> {
       issue_number
     );
 
-    let issueContent = ""
-    if (includeTitle === 1) {
-      issueContent += `${issue_title}\n\n`
+    let issueContent: string = ""
+    if (includeTitle === 1 && issue_title != null) {
+      issueContent += `${issue_title}\n\n`;
+    }
+    if (issue_body != null) {
+      issueContent += issue_body;
     }
 
-    issueContent += issue_body
     core.info(`Content of issue #${issue_number}:\n${issueContent}`)
 
     var [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(

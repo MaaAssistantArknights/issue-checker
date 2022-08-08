@@ -91,10 +91,12 @@ function run() {
             const [labelParams, commentParams] = yield getLabelCommentRegexes(client, configPath);
             const issueLabels = yield getLabels(client, issue_number);
             let issueContent = "";
-            if (includeTitle === 1) {
+            if (includeTitle === 1 && issue_title != null) {
                 issueContent += `${issue_title}\n\n`;
             }
-            issueContent += issue_body;
+            if (issue_body != null) {
+                issueContent += issue_body;
+            }
             core.info(`Content of issue #${issue_number}:\n${issueContent}`);
             var [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent);
             var [addCommentItems, removeCommentItems] = itemAnalyze(commentParams, issueContent);
