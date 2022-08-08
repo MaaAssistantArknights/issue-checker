@@ -3,8 +3,8 @@ import * as github from '@actions/github';
 import { Octokit } from '@octokit/core';
 import * as yaml from 'js-yaml';
 
-// content, [name, regexes, disabled-if]
-type item_t = Map<string, [string, string[], string[]]>;
+// {name, content, regexes, author_association, disabled-if}
+type item_t = Map<string, any>;
 
 async function run(): Promise<void> {
   try {
@@ -15,9 +15,14 @@ async function run(): Promise<void> {
     const includeTitle: number = parseInt(core.getInput('include-title', { required: false }));
     const syncLabels: number = parseInt(core.getInput('sync-labels', { required: false }));
 
-    const [issue_number, issue_title, issue_body]:
-      [number, string, string] = getIssueOrPullRequestInfo();
-
+    const [issue_number, issue_title, issue_body, issue_author_association]:
+      [number, string, string, string] = getIssueOrPullRequestInfo();
+    if(core.isDebug()) {
+      core.debug(`issue_number: ${issue_number}`)
+      core.debug(`issue_title: ${issue_title}`)
+      core.debug(`issue_body: ${issue_body}`)
+      core.debug(`issue_author_association: ${issue_author_association}`)
+    }
     // A client to load data from GitHub
     const client = github.getOctokit(token);
 
@@ -44,7 +49,7 @@ async function run(): Promise<void> {
     }
 
     // Load our regex rules from the configuration path
-    const itemsPromise: Promise<[item_t, item_t]> = getLabelCommentRegexes(
+    const itemsPromise: Promise<[Array<item_t>, Array<item_t>]> = getLabelCommentMaps(
       client,
       configPath
     );
@@ -54,7 +59,7 @@ async function run(): Promise<void> {
       issue_number
     );
 
-    const [labelParams, commentParams]: [item_t, item_t] = await itemsPromise;
+    const [labelParams, commentParams]: [Array<item_t>, Array<item_t>] = await itemsPromise;
     const issueLabels: Set<string> = await labelsPromise;
 
     let issueContent: string = ""
@@ -69,12 +74,14 @@ async function run(): Promise<void> {
     var [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
       labelParams,
       issueContent,
+      issue_author_association,
     );
 
     // comments to be added & removed(no sense)
     var [addCommentItems, removeCommentItems]: [string[], string[]] = itemAnalyze(
       commentParams,
       issueContent,
+      issue_author_association,
     );
 
     if (core.isDebug()) {
@@ -115,16 +122,23 @@ async function run(): Promise<void> {
 }
 
 function itemAnalyze(
-  itemParams: item_t,
+  itemMap: Array<item_t>,
   issueContent: string,
+  issue_author_association: string,
 ): [string[], string[]] {
   const addItems: string[] = []
   const addItemNames: Set<string> = new Set();
   const removeItems: string[] = []
 
-  for (const [item, [itemName, globs, avoidItems]] of itemParams.entries()) {
+  for (const itemParams of itemMap) {
+    const item: string = itemParams.get("content");
+    const itemName: string = itemParams.get("name");
+    const globs: string[] = itemParams.get("regexes");
+    const author_association: string[] = itemParams.get("author_association");
+    const avoidItems: string[] = itemParams.get("disabled-if");
     if (avoidItems.filter(avoidItem => addItemNames.has(avoidItem)).length == 0 &&
-      checkRegexes(issueContent, globs)) {
+      checkRegexes(issueContent, globs) &&
+      checkAuthorAssociation(issue_author_association, author_association)) {
       addItems.push(item);
       addItemNames.add(itemName);
     }
@@ -136,7 +150,7 @@ function itemAnalyze(
 }
 
 function getIssueOrPullRequestInfo():
-  [number, string, string] {
+  [number, string, string, string] {
   const issue = github.context.payload.issue;
   if (issue) {
     if (issue.title === undefined) {
@@ -149,10 +163,16 @@ function getIssueOrPullRequestInfo():
         `could not get issue body from context`
       );
     }
+    if (issue.author_association === undefined) {
+      throw Error(
+        `could not get issue author_association from context`
+      );
+    }
     return [
       issue.number,
       issue.title === null ? "" : issue.title,
       issue.body === null ? "" : issue.body,
+      issue.author_association === null ? "" : issue.author_association,
     ];
   }
 
@@ -168,22 +188,28 @@ function getIssueOrPullRequestInfo():
         `could not get pull request body from context`
       );
     }
+    if (pull_request.author_association === undefined) {
+      throw Error(
+        `could not get pull request author_association from context`
+      );
+    }
     return [
       pull_request.number,
       pull_request.title === null ? "" : pull_request.title,
       pull_request.body === null ? "" : pull_request.body,
+      pull_request.author_association === null ? "" : pull_request.author_association,
     ];
   }
 
   throw Error(
-    `could not get issue or pull request number from context`
+    `could not get issue or pull request from context`
   );
 }
 
-async function getLabelCommentRegexes(
+async function getLabelCommentMaps(
   client: any,
   configurationPath: string
-): Promise<[item_t, item_t]> {
+): Promise<[Array<item_t>, Array<item_t>]> {
   const response = await client.rest.repos.getContent({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
@@ -201,16 +227,16 @@ async function getLabelCommentRegexes(
   const configurationContent: string = Buffer.from(data.content, 'base64').toString('utf8');
   const configObject: any = yaml.load(configurationContent);
 
-  // transform `any` => `item_t` or throw if yaml is malformed:
-  return getParamsMapFromObject(configObject);
+  // transform `any` => `Array<item_t>` or throw if yaml is malformed:
+  return getArraysFromObject(configObject);
 }
 
-function getItemParamsFromItem(item: any): [string, string, string[], string[]] {
-  const itemMap: Map<string, any> = new Map();
+function getItemParamsFromItem(item: any): Map<string, any> {
+  const itemParams: Map<string, any> = new Map();
   for (const key in item) {
     if (key == "name") {
       if (typeof item[key] === 'string') {
-        itemMap.set(key, item[key]);
+        itemParams.set(key, item[key]);
       } else {
         throw Error(
           `found unexpected type for item name \`${item[key]}\` (should be string)`
@@ -218,31 +244,42 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
       }
     } else if (key == "content") {
       if (typeof item[key] === 'string') {
-        itemMap.set(key, item[key]);
+        itemParams.set(key, item[key]);
       } else {
-        const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
+        const itemRepr: string = itemParams.has("name") ? itemParams.get("name") : "some item";
         throw Error(
           `found unexpected type of field \`content\` in ${itemRepr} (should be string)`
         );
       }
+    } else if (key == "author_association") {
+      if (typeof item[key] === 'string') {
+        itemParams.set(key, [item[key]]);
+      } else if (Array.isArray(item[key])) {
+        itemParams.set(key, item[key]);
+      } else {
+        const itemRepr: string = itemParams.has("name") ? itemParams.get("name") : "some item";
+        throw Error(
+          `found unexpected type of field \`author_association\` in ${itemRepr} (should be string or array of regex)`
+        );
+      }
     } else if (key == "regexes") {
       if (typeof item[key] === 'string') {
-        itemMap.set(key, [item[key]]);
+        itemParams.set(key, [item[key]]);
       } else if (Array.isArray(item[key])) {
-        itemMap.set(key, item[key]);
+        itemParams.set(key, item[key]);
       } else {
-        const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
+        const itemRepr: string = itemParams.has("name") ? itemParams.get("name") : "some item";
         throw Error(
           `found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`
         );
       }
     } else if (key == "disabled-if") {
       if (typeof item[key] === 'string') {
-        itemMap.set(key, [item[key]]);
+        itemParams.set(key, [item[key]]);
       } else if (Array.isArray(item[key])) {
-        itemMap.set(key, item[key]);
+        itemParams.set(key, item[key]);
       } else {
-        const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
+        const itemRepr: string = itemParams.has("name") ? itemParams.get("name") : "some item";
         throw Error(
           `found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`
         );
@@ -250,43 +287,51 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
     }
   }
 
-  if (!itemMap.has("name")) {
+  if (!itemParams.has("name")) {
     throw Error(
       `some item's name is missing`
     );
   }
-  if (!itemMap.has("regexes")) {
-    const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
+  if (!itemParams.has("regexes") && !itemParams.has("author_association")) {
+    const itemRepr: string = itemParams.has("name") ? itemParams.get("name") : "some item";
     throw Error(
-      `${itemRepr}'s regexes are missing`
+      `${itemRepr}'s \`regexes\` or \`author_association\` are missing`
     );
   }
 
-  const itemName: string = itemMap.get("name");
-  const itemContent: string = itemMap.has("content") ? itemMap.get("content") : itemName;
-  const itemRegexes: string[] = itemMap.get("regexes");
-  const itemAvoid: string[] = itemMap.has("disabled-if") ? itemMap.get("disabled-if") : [];
-  return [itemName, itemContent, itemRegexes, itemAvoid];
-}
-
-function getItemParamsMapFromObject(configObject: any): item_t {
-  const itemParams: item_t = new Map();
-  for (const item of configObject) {
-    const [itemName, itemContent, itemRegexes, itemAvoid]:
-      [string, string, string[], string[]] = getItemParamsFromItem(item);
-    itemParams.set(itemContent, [itemName, itemRegexes, itemAvoid]);
+  const itemName: string = itemParams.get("name");
+  if (itemParams.has("content")) {
+    itemParams.set("content", itemName);
+  }
+  if (itemParams.has("regexes")) {
+    itemParams.set("regexes", []);
+  }
+  if (itemParams.has("author_association")) {
+    itemParams.set("author_association", []);
+  }
+  if (itemParams.has("disabled-if")) {
+    itemParams.set("disabled-if", []);
   }
   return itemParams;
 }
 
-function getParamsMapFromObject(configObject: any): [item_t, item_t] {
-  var labelParams: item_t = new Map();
-  var commentParams: item_t = new Map();
+function getItemArrayFromObject(configObject: any): Array<item_t> {
+  const itemArray: Array<item_t> = new Array();
+  for (const item of configObject) {
+    const itemParams: item_t = getItemParamsFromItem(item);
+    itemArray.push(itemParams);
+  }
+  return itemArray;
+}
+
+function getArraysFromObject(configObject: any): [Array<item_t>, Array<item_t>] {
+  var labelParams: Array<item_t> = new Array();
+  var commentParams: Array<item_t> = new Array();
   for (const key in configObject) {
     if (key === 'labels') {
-      labelParams = getItemParamsMapFromObject(configObject[key]);
+      labelParams = getItemArrayFromObject(configObject[key]);
     } else if (key === 'comments') {
-      commentParams = getItemParamsMapFromObject(configObject[key]);
+      commentParams = getItemArrayFromObject(configObject[key]);
     } else {
       throw Error(
         `found unexpected key for ${key} (should be \`labels\` or \`comments\`)`
@@ -307,6 +352,29 @@ function checkRegexes(issue_body: string, regexes: string[]): boolean {
       matched = issue_body.match(new RegExp(isRegEx[1], isRegEx[2]))
     } else {
       matched = issue_body.match(regEx)
+    }
+
+    if (!matched) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function checkAuthorAssociation(
+  issue_author_association: string,
+  regexes: string[],
+): boolean {
+  var matched;
+
+  // If several regex entries are provided we require all of them to match for the label to be applied.
+  for (const regEx of regexes) {
+    const isRegEx = regEx.match(/^\/(.+)\/(.*)$/)
+
+    if (isRegEx) {
+      matched = issue_author_association.match(new RegExp(isRegEx[1], isRegEx[2]))
+    } else {
+      matched = issue_author_association.match(regEx)
     }
 
     if (!matched) {
