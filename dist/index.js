@@ -53,17 +53,17 @@ function run() {
             const syncLabels = parseInt(core.getInput('sync-labels', { required: false }));
             const issue_number = getIssueOrPullRequestNumber();
             if (issue_number === undefined) {
-                console.log('Could not get issue or pull request number from context, exiting');
+                core.warning("Could not get issue or pull request number from context. Exiting...");
                 return;
             }
             const issue_body = getIssueOrPullRequestBody();
             if (issue_body === undefined) {
-                console.log('Could not get issue or pull request body from context, exiting');
+                core.warning("Could not get issue or pull request body from context. Exiting...");
                 return;
             }
             const issue_title = getIssueOrPullRequestTitle();
             if (issue_title === undefined) {
-                console.log('Could not get issue or pull request title from context, exiting');
+                core.warning("Could not get issue or pull request title from context. Exiting...");
                 return;
             }
             // A client to load data from GitHub
@@ -77,8 +77,8 @@ function run() {
                 });
                 const issueCreatedAt = Date.parse((yield issue).data.created_at);
                 if (issueCreatedAt < notBefore) {
-                    console.log("Issue is before `notBefore` configuration parameter. Exiting...");
-                    process.exit(0);
+                    core.info("Issue is before `notBefore` configuration parameter. Exiting...");
+                    return;
                 }
             }
             // Load our regex rules from the configuration path
@@ -89,24 +89,25 @@ function run() {
                 issueContent += `${issue_title}\n\n`;
             }
             issueContent += issue_body;
+            core.info(`Content of issue #${issue_number}:\n${issueContent}`);
             var [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent);
             var [addCommentItems, removeCommentItems] = itemAnalyze(commentParams, issueContent);
             addLabelItems = addLabelItems.filter(label => !issueLabels.has(label));
             if (addLabelItems.length > 0) {
-                console.log(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`);
+                core.info(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`);
                 addLabels(client, issue_number, addLabelItems);
             }
             if (syncLabels) {
                 removeLabelItems.forEach(function (label, index) {
                     if (issueLabels.has(label)) {
-                        console.log(`Removing label ${label} from issue #${issue_number}`);
+                        core.info(`Removing label ${label} from issue #${issue_number}`);
                         removeLabel(client, issue_number, label);
                     }
                 });
             }
             if (addCommentItems.length > 0) {
                 addCommentItems.forEach(function (body, index) {
-                    console.log(`Comment ${body} to issue #${issue_number}`);
+                    core.info(`Comment ${body} to issue #${issue_number}`);
                     addComment(client, issue_number, body);
                 });
             }
@@ -178,12 +179,11 @@ function getLabelCommentRegexes(client, configurationPath) {
         });
         const data = response.data;
         if (!data.content) {
-            console.log('The configuration path provided is not a valid file. Exiting');
-            process.exit(1);
+            throw Error(`The configuration path provided is not a valid file. Exiting`);
         }
         const configurationContent = Buffer.from(data.content, 'base64').toString('utf8');
         const configObject = yaml.load(configurationContent);
-        // transform `any` => `Map<string, [string, string[], string[]]>` or throw if yaml is malformed:
+        // transform `any` => `item_t` or throw if yaml is malformed:
         return getParamsMapFromObject(configObject);
     });
 }
@@ -203,7 +203,8 @@ function getItemParamsFromItem(item) {
                 itemMap.set(key, item[key]);
             }
             else {
-                throw Error(`found unexpected type for \`content\` in some item (should be string)`);
+                const itemRepr = itemMap.has("name") ? itemMap.get("name") : "some item";
+                throw Error(`found unexpected type for \`content\` in ${itemRepr} (should be string)`);
             }
         }
         else if (key == "regexes") {
@@ -214,7 +215,8 @@ function getItemParamsFromItem(item) {
                 itemMap.set(key, item[key]);
             }
             else {
-                throw Error(`found unexpected type for \`regexes\` in some item (should be string or array of regex)`);
+                const itemRepr = itemMap.has("name") ? itemMap.get("name") : "some item";
+                throw Error(`found unexpected type for \`regexes\` in ${itemRepr} (should be string or array of regex)`);
             }
         }
         else if (key == "disabled-if") {
@@ -225,7 +227,8 @@ function getItemParamsFromItem(item) {
                 itemMap.set(key, item[key]);
             }
             else {
-                throw Error(`found unexpected type for \`disabled-if\` in some item (should be string)`);
+                const itemRepr = itemMap.has("name") ? itemMap.get("name") : "some item";
+                throw Error(`found unexpected type for \`disabled-if\` in ${itemRepr} (should be string or array of string)`);
             }
         }
     }
@@ -233,7 +236,8 @@ function getItemParamsFromItem(item) {
         throw Error(`some item's name is missing`);
     }
     if (!itemMap.has("regexes")) {
-        throw Error(`some item's regexes are missing`);
+        const itemRepr = itemMap.has("name") ? itemMap.get("name") : "some item";
+        throw Error(`${itemRepr}'s regexes are missing`);
     }
     const itemName = itemMap.get("name");
     const itemContent = itemMap.has("content") ? itemMap.get("content") : itemName;
@@ -289,11 +293,10 @@ function getLabels(client, issue_number) {
             repo: github.context.repo.repo,
             issue_number: issue_number,
         });
-        const data = response.data;
         if (response.status != 200) {
-            console.log('Unable to load labels. Exiting...');
-            process.exit(1);
+            throw Error(`unable to load labels`);
         }
+        const data = response.data;
         const labels = new Set();
         for (let i = 0; i < Object.keys(data).length; i++) {
             labels.add(data[i].name);
@@ -303,32 +306,41 @@ function getLabels(client, issue_number) {
 }
 function addLabels(client, issue_number, labels) {
     return __awaiter(this, void 0, void 0, function* () {
-        yield client.rest.issues.addLabels({
+        const response = yield client.rest.issues.addLabels({
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
             issue_number: issue_number,
             labels: labels
         });
+        if (response.status != 200) {
+            core.warning(`unable to add labels`);
+        }
     });
 }
 function removeLabel(client, issue_number, name) {
     return __awaiter(this, void 0, void 0, function* () {
-        yield client.rest.issues.removeLabel({
+        const response = yield client.rest.issues.removeLabel({
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
             issue_number: issue_number,
             name: name
         });
+        if (response.status != 200) {
+            core.warning(`unable to remove label ${name}`);
+        }
     });
 }
 function addComment(client, issue_number, body) {
     return __awaiter(this, void 0, void 0, function* () {
-        yield client.rest.issues.createComment({
+        const response = yield client.rest.issues.createComment({
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
             issue_number: issue_number,
             body: body
         });
+        if (response.status != 200) {
+            core.warning(`unable to add comment ${body}`);
+        }
     });
 }
 run();
