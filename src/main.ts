@@ -20,18 +20,24 @@ async function run(): Promise<void> {
       core.warning("Could not get issue or pull request number from context. Exiting...");
       return;
     }
+    core.debug(`typeof issue_number: ${typeof issue_number}`)
+    core.debug(`issue_number: ${issue_number}`)
 
     const issue_body = getIssueOrPullRequestBody();
     if (issue_body === undefined) {
       core.warning("Could not get issue or pull request body from context. Exiting...");
       return;
     }
+    core.debug(`typeof issue_body: ${typeof issue_body}`)
+    core.debug(`issue_body: ${issue_body}`)
 
     const issue_title = getIssueOrPullRequestTitle();
     if (issue_title === undefined) {
       core.warning("Could not get issue or pull request title from context. Exiting...");
       return;
     }
+    core.debug(`typeof issue_title: ${typeof issue_title}`)
+    core.debug(`issue_title: ${issue_title}`)
 
     // A client to load data from GitHub
     const client = github.getOctokit(token);
@@ -66,6 +72,7 @@ async function run(): Promise<void> {
     if (includeTitle === 1) {
       issueContent += `${issue_title}\n\n`
     }
+
     issueContent += issue_body
     core.info(`Content of issue #${issue_number}:\n${issueContent}`)
 
