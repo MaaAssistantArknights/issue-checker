@@ -53,7 +53,7 @@ function run() {
             const notBefore = Date.parse(core.getInput('not-before', { required: false }));
             const includeTitle = parseInt(core.getInput('include-title', { required: false }));
             const syncLabels = parseInt(core.getInput('sync-labels', { required: false }));
-            const [issue_number, issue_title, issue_body, issue_author_association] = getIssueOrPullRequestInfo();
+            const [issue_number, issue_title, issue_body, issue_author_association] = getEventInfo();
             if (core.isDebug()) {
                 core.debug(`issue_number: ${issue_number}`);
                 core.debug(`issue_title: ${issue_title}`);
@@ -158,46 +158,32 @@ function itemAnalyze(itemMap, issueContent, issue_author_association) {
     }
     return [addItems, removeItems];
 }
-function getIssueOrPullRequestInfo() {
-    const issue = github.context.payload.issue;
-    if (issue) {
-        if (issue.title === undefined) {
-            throw Error(`could not get issue title from context`);
-        }
-        if (issue.body === undefined) {
-            throw Error(`could not get issue body from context`);
-        }
-        if (issue.author_association === undefined) {
-            throw Error(`could not get issue author_association from context`);
-        }
+function getEventDetails(issue, repr) {
+    try {
         return [
             issue.number,
-            issue.title === null ? '' : issue.title,
-            issue.body === null ? '' : issue.body,
-            issue.author_association === null ? '' : issue.author_association
+            issue.title ? issue.title : '',
+            issue.body ? issue.body : '',
+            issue.author_association ? issue.author_association : ''
         ];
     }
-    const pull_request = github.context.payload.pull_request;
-    if (pull_request) {
-        if (pull_request.title === undefined) {
-            throw Error(`could not get pull request title from context`);
-        }
-        if (pull_request.body === undefined) {
-            throw Error(`could not get pull request body from context`);
-        }
-        if (pull_request.author_association === undefined) {
-            throw Error(`could not get pull request author_association from context`);
-        }
-        return [
-            pull_request.number,
-            pull_request.title === null ? '' : pull_request.title,
-            pull_request.body === null ? '' : pull_request.body,
-            pull_request.author_association === null
-                ? ''
-                : pull_request.author_association
-        ];
+    catch (error) {
+        throw Error(`could not get ${repr} from context (${error})`);
     }
-    throw Error(`could not get issue or pull request from context`);
+}
+function getEventInfo() {
+    const eventName = github.context.eventName;
+    core.info(`Event: ${github.context.eventName}`);
+    if (eventName === "issues") {
+        return getEventDetails(github.context.payload.issue, "issue");
+    }
+    else if (eventName === "pull_request_target" || eventName === "pull_request") {
+        return getEventDetails(github.context.payload.pull_request, "pull request");
+    }
+    else if (eventName === "issue_comment") {
+        return getEventDetails(github.context.payload.comment, "issue comment");
+    }
+    throw Error(`could not get event from context`);
 }
 function getLabelCommentArrays(client, configurationPath) {
     return __awaiter(this, void 0, void 0, function* () {

@@ -27,7 +27,7 @@ async function run(): Promise<void> {
       string,
       string,
       string
-    ] = getIssueOrPullRequestInfo()
+    ] = getEventInfo()
     if (core.isDebug()) {
       core.debug(`issue_number: ${issue_number}`)
       core.debug(`issue_title: ${issue_title}`)
@@ -164,48 +164,36 @@ function itemAnalyze(
   return [addItems, removeItems]
 }
 
-function getIssueOrPullRequestInfo(): [number, string, string, string] {
-  const issue = github.context.payload.issue
-  if (issue) {
-    if (issue.title === undefined) {
-      throw Error(`could not get issue title from context`)
-    }
-    if (issue.body === undefined) {
-      throw Error(`could not get issue body from context`)
-    }
-    if (issue.author_association === undefined) {
-      throw Error(`could not get issue author_association from context`)
-    }
+function getEventDetails(
+  issue: any,
+  repr: string
+): [number, string, string, string] {
+  try {
     return [
       issue.number,
-      issue.title === null ? '' : issue.title,
-      issue.body === null ? '' : issue.body,
-      issue.author_association === null ? '' : issue.author_association
+      issue.title ? issue.title : '',
+      issue.body ? issue.body : '',
+      issue.author_association ? issue.author_association : ''
     ]
+  } catch (error) {
+    throw Error(`could not get ${repr} from context (${error})`)
   }
+}
 
-  const pull_request = github.context.payload.pull_request
-  if (pull_request) {
-    if (pull_request.title === undefined) {
-      throw Error(`could not get pull request title from context`)
-    }
-    if (pull_request.body === undefined) {
-      throw Error(`could not get pull request body from context`)
-    }
-    if (pull_request.author_association === undefined) {
-      throw Error(`could not get pull request author_association from context`)
-    }
-    return [
-      pull_request.number,
-      pull_request.title === null ? '' : pull_request.title,
-      pull_request.body === null ? '' : pull_request.body,
-      pull_request.author_association === null
-        ? ''
-        : pull_request.author_association
-    ]
+function getEventInfo(): [number, string, string, string] {
+  const eventName: string = github.context.eventName
+  core.info(`Event: ${github.context.eventName}`)
+  if (eventName === 'issues') {
+    return getEventDetails(github.context.payload.issue, 'issue')
+  } else if (
+    eventName === 'pull_request_target' ||
+    eventName === 'pull_request'
+  ) {
+    return getEventDetails(github.context.payload.pull_request, 'pull request')
+  } else if (eventName === 'issue_comment') {
+    return getEventDetails(github.context.payload.comment, 'issue comment')
   }
-
-  throw Error(`could not get issue or pull request from context`)
+  throw Error(`could not get event from context`)
 }
 
 async function getLabelCommentArrays(
