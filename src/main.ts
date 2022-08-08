@@ -23,11 +23,17 @@ async function run(): Promise<void> {
 
     // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
     if (notBefore) {
-      const issueCreatedAt: number = Date.parse(github.context.payload.created_at)
-      core.info(`Issue is created at ${github.context.payload.created_at}.`)
+      var issue_created_at: string = "";
+      if (github.context.payload.issue) {
+        issue_created_at = github.context.payload.issue.created_at;
+      } else if (github.context.payload.pull_request) {
+        issue_created_at = github.context.payload.pull_request.created_at;
+      }
+      const issueCreatedAt: number = Date.parse(issue_created_at)
+      core.info(`Issue is created at ${issue_created_at}.`)
       if (Number.isNaN(issueCreatedAt)) {
         throw Error(
-          `Cannot deduce \`issueCreatedAt\` from ${github.context.payload.created_at}.`
+          `Cannot deduce \`issueCreatedAt\` from ${issue_created_at}.`
         );
       } else if (issueCreatedAt < notBefore) {
         core.notice("Issue is before `notBefore` configuration parameter. Exiting...");
