@@ -1,6 +1,6 @@
 name: 'RegEx Issue Checker'
 description: 'Labels and comments to issues automatically based on their body'
-author: 'GitHub'
+author: 'zzyyyl'
 inputs:
   repo-token:
     description: 'The GITHUB_TOKEN secret'
