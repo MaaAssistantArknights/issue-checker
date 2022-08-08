@@ -46,7 +46,9 @@ function run() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
             // Configuration parameters
-            const configPath = core.getInput('configuration-path', { required: true });
+            const configPath = core.getInput('configuration-path', {
+                required: true
+            });
             const token = core.getInput('repo-token', { required: true });
             const notBefore = Date.parse(core.getInput('not-before', { required: false }));
             const includeTitle = parseInt(core.getInput('include-title', { required: false }));
@@ -62,7 +64,7 @@ function run() {
             const client = github.getOctokit(token);
             // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
             if (notBefore) {
-                var issue_created_at = "";
+                let issue_created_at = '';
                 if (github.context.payload.issue) {
                     issue_created_at = github.context.payload.issue.created_at;
                 }
@@ -75,7 +77,7 @@ function run() {
                     throw Error(`Cannot deduce \`issueCreatedAt\` from ${issue_created_at}.`);
                 }
                 else if (issueCreatedAt < notBefore) {
-                    core.notice("Issue is before `notBefore` configuration parameter. Exiting...");
+                    core.notice('Issue is before `notBefore` configuration parameter. Exiting...');
                     return;
                 }
             }
@@ -88,16 +90,16 @@ function run() {
             const labelsPromise = getLabels(client, issue_number);
             const [labelParams, commentParams] = yield itemsPromise;
             const issueLabels = yield labelsPromise;
-            let issueContent = "";
+            let issueContent = '';
             if (includeTitle === 1) {
                 issueContent += `${issue_title}\n\n`;
             }
             issueContent += issue_body;
             core.info(`Content of issue #${issue_number}:\n${issueContent}`);
             // labels to be added & removed
-            var [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent, issue_author_association);
-            // comments to be added & removed(no sense)
-            var [addCommentItems, removeCommentItems] = itemAnalyze(commentParams, issueContent, issue_author_association);
+            let [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent, issue_author_association);
+            // comments to be added
+            const addCommentItems = itemAnalyze(commentParams, issueContent, issue_author_association)[0];
             if (core.isDebug()) {
                 core.debug(`labels have been added: [${Array.from(issueLabels)}]`);
                 core.debug(`labels to be added: [${addLabelItems.toString()}]`);
@@ -110,19 +112,19 @@ function run() {
                 addLabels(client, issue_number, addLabelItems);
             }
             if (syncLabels) {
-                removeLabelItems.forEach(function (label, index) {
+                for (const label of removeLabelItems) {
                     // skip labels that have not been added
                     if (issueLabels.has(label)) {
                         core.info(`Removing label ${label} from issue #${issue_number}`);
                         removeLabel(client, issue_number, label);
                     }
-                });
+                }
             }
             if (addCommentItems.length > 0) {
-                addCommentItems.forEach(function (body, index) {
+                for (const body of addCommentItems) {
                     core.info(`Comment ${body} to issue #${issue_number}`);
                     addComment(client, issue_number, body);
-                });
+                }
             }
         }
         catch (error) {
@@ -138,12 +140,13 @@ function itemAnalyze(itemMap, issueContent, issue_author_association) {
     const addItemNames = new Set();
     const removeItems = [];
     for (const itemParams of itemMap) {
-        const item = itemParams.get("content");
-        const itemName = itemParams.get("name");
-        const globs = itemParams.get("regexes");
-        const author_association = itemParams.get("author_association");
-        const avoidItems = itemParams.get("disabled-if");
-        if (avoidItems.filter(avoidItem => addItemNames.has(avoidItem)).length == 0 &&
+        const item = itemParams.get('content');
+        const itemName = itemParams.get('name');
+        const globs = itemParams.get('regexes');
+        const author_association = itemParams.get('author_association');
+        const avoidItems = itemParams.get('disabled-if');
+        if (avoidItems.filter(avoidItem => addItemNames.has(avoidItem)).length ===
+            0 &&
             checkRegexes(issueContent, globs) &&
             checkAuthorAssociation(issue_author_association, author_association)) {
             addItems.push(item);
@@ -169,9 +172,9 @@ function getIssueOrPullRequestInfo() {
         }
         return [
             issue.number,
-            issue.title === null ? "" : issue.title,
-            issue.body === null ? "" : issue.body,
-            issue.author_association === null ? "" : issue.author_association,
+            issue.title === null ? '' : issue.title,
+            issue.body === null ? '' : issue.body,
+            issue.author_association === null ? '' : issue.author_association
         ];
     }
     const pull_request = github.context.payload.pull_request;
@@ -187,9 +190,11 @@ function getIssueOrPullRequestInfo() {
         }
         return [
             pull_request.number,
-            pull_request.title === null ? "" : pull_request.title,
-            pull_request.body === null ? "" : pull_request.body,
-            pull_request.author_association === null ? "" : pull_request.author_association,
+            pull_request.title === null ? '' : pull_request.title,
+            pull_request.body === null ? '' : pull_request.body,
+            pull_request.author_association === null
+                ? ''
+                : pull_request.author_association
         ];
     }
     throw Error(`could not get issue or pull request from context`);
@@ -208,14 +213,14 @@ function getLabelCommentArrays(client, configurationPath) {
         }
         const configurationContent = Buffer.from(data.content, 'base64').toString('utf8');
         const configObject = yaml.load(configurationContent);
-        // transform `any` => `Array<item_t>` or throw if yaml is malformed:
+        // transform `any` => `item_t[]` or throw if yaml is malformed:
         return getArraysFromObject(configObject);
     });
 }
 function getItemParamsFromItem(item) {
     const itemParams = new Map();
     for (const key in item) {
-        if (key == "name") {
+        if (key === 'name') {
             if (typeof item[key] === 'string') {
                 itemParams.set(key, item[key]);
             }
@@ -223,16 +228,18 @@ function getItemParamsFromItem(item) {
                 throw Error(`found unexpected type for item name \`${item[key]}\` (should be string)`);
             }
         }
-        else if (key == "content") {
+        else if (key === 'content') {
             if (typeof item[key] === 'string') {
                 itemParams.set(key, item[key]);
             }
             else {
-                const itemRepr = itemParams.has("name") ? itemParams.get("name") : "some item";
+                const itemRepr = itemParams.has('name')
+                    ? itemParams.get('name')
+                    : 'some item';
                 throw Error(`found unexpected type of field \`content\` in ${itemRepr} (should be string)`);
             }
         }
-        else if (key == "author_association") {
+        else if (key === 'author_association') {
             if (typeof item[key] === 'string') {
                 itemParams.set(key, [item[key]]);
             }
@@ -240,11 +247,13 @@ function getItemParamsFromItem(item) {
                 itemParams.set(key, item[key]);
             }
             else {
-                const itemRepr = itemParams.has("name") ? itemParams.get("name") : "some item";
+                const itemRepr = itemParams.has('name')
+                    ? itemParams.get('name')
+                    : 'some item';
                 throw Error(`found unexpected type of field \`author_association\` in ${itemRepr} (should be string or array of regex)`);
             }
         }
-        else if (key == "regexes") {
+        else if (key === 'regexes') {
             if (typeof item[key] === 'string') {
                 itemParams.set(key, [item[key]]);
             }
@@ -252,11 +261,13 @@ function getItemParamsFromItem(item) {
                 itemParams.set(key, item[key]);
             }
             else {
-                const itemRepr = itemParams.has("name") ? itemParams.get("name") : "some item";
+                const itemRepr = itemParams.has('name')
+                    ? itemParams.get('name')
+                    : 'some item';
                 throw Error(`found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`);
             }
         }
-        else if (key == "disabled-if") {
+        else if (key === 'disabled-if') {
             if (typeof item[key] === 'string') {
                 itemParams.set(key, [item[key]]);
             }
@@ -264,35 +275,39 @@ function getItemParamsFromItem(item) {
                 itemParams.set(key, item[key]);
             }
             else {
-                const itemRepr = itemParams.has("name") ? itemParams.get("name") : "some item";
+                const itemRepr = itemParams.has('name')
+                    ? itemParams.get('name')
+                    : 'some item';
                 throw Error(`found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`);
             }
         }
     }
-    if (!itemParams.has("name")) {
+    if (!itemParams.has('name')) {
         throw Error(`some item's name is missing`);
     }
-    if (!itemParams.has("regexes") && !itemParams.has("author_association")) {
-        const itemRepr = itemParams.has("name") ? itemParams.get("name") : "some item";
+    if (!itemParams.has('regexes') && !itemParams.has('author_association')) {
+        const itemRepr = itemParams.has('name')
+            ? itemParams.get('name')
+            : 'some item';
         throw Error(`${itemRepr}'s \`regexes\` or \`author_association\` are missing`);
     }
-    const itemName = itemParams.get("name");
-    if (!itemParams.has("content")) {
-        itemParams.set("content", itemName);
+    const itemName = itemParams.get('name');
+    if (!itemParams.has('content')) {
+        itemParams.set('content', itemName);
     }
-    if (!itemParams.has("regexes")) {
-        itemParams.set("regexes", []);
+    if (!itemParams.has('regexes')) {
+        itemParams.set('regexes', []);
     }
-    if (!itemParams.has("author_association")) {
-        itemParams.set("author_association", []);
+    if (!itemParams.has('author_association')) {
+        itemParams.set('author_association', []);
     }
-    if (!itemParams.has("disabled-if")) {
-        itemParams.set("disabled-if", []);
+    if (!itemParams.has('disabled-if')) {
+        itemParams.set('disabled-if', []);
     }
     return itemParams;
 }
 function getItemArrayFromObject(configObject) {
-    const itemArray = new Array();
+    const itemArray = [];
     for (const item of configObject) {
         const itemParams = getItemParamsFromItem(item);
         itemArray.push(itemParams);
@@ -300,8 +315,8 @@ function getItemArrayFromObject(configObject) {
     return itemArray;
 }
 function getArraysFromObject(configObject) {
-    var labelParams = new Array();
-    var commentParams = new Array();
+    let labelParams = [];
+    let commentParams = [];
     for (const key in configObject) {
         if (key === 'labels') {
             labelParams = getItemArrayFromObject(configObject[key]);
@@ -316,7 +331,7 @@ function getArraysFromObject(configObject) {
     return [labelParams, commentParams];
 }
 function checkRegexes(issue_body, regexes) {
-    var matched;
+    let matched;
     // If several regex entries are provided we require all of them to match for the label to be applied.
     for (const regEx of regexes) {
         const isRegEx = regEx.match(/^\/(.+)\/(.*)$/);
@@ -333,7 +348,7 @@ function checkRegexes(issue_body, regexes) {
     return true;
 }
 function checkAuthorAssociation(issue_author_association, regexes) {
-    var matched;
+    let matched;
     // If several regex entries are provided we require all of them to match for the label to be applied.
     for (const regEx of regexes) {
         const isRegEx = regEx.match(/^\/(.+)\/(.*)$/);
@@ -356,9 +371,9 @@ function getLabels(client, issue_number) {
             const response = yield client.rest.issues.listLabelsOnIssue({
                 owner: github.context.repo.owner,
                 repo: github.context.repo.repo,
-                issue_number: issue_number,
+                issue_number
             });
-            if (response.status != 200) {
+            if (response.status !== 200) {
                 core.warning(`Unable to load labels, status ${response.status}`);
             }
             else {
@@ -381,10 +396,10 @@ function addLabels(client, issue_number, labels) {
             const response = yield client.rest.issues.addLabels({
                 owner: github.context.repo.owner,
                 repo: github.context.repo.repo,
-                issue_number: issue_number,
-                labels: labels
+                issue_number,
+                labels
             });
-            if (response.status != 200) {
+            if (response.status !== 200) {
                 core.warning(`Unable to add labels, status ${response.status}`);
             }
         }
@@ -399,10 +414,10 @@ function removeLabel(client, issue_number, name) {
             const response = yield client.rest.issues.removeLabel({
                 owner: github.context.repo.owner,
                 repo: github.context.repo.repo,
-                issue_number: issue_number,
-                name: name
+                issue_number,
+                name
             });
-            if (response.status != 200) {
+            if (response.status !== 200) {
                 core.warning(`Unable to remove label ${name}, status ${response.status}`);
             }
         }
@@ -417,10 +432,10 @@ function addComment(client, issue_number, body) {
             const response = yield client.rest.issues.createComment({
                 owner: github.context.repo.owner,
                 repo: github.context.repo.repo,
-                issue_number: issue_number,
-                body: body
+                issue_number,
+                body
             });
-            if (response.status != 200) {
+            if (response.status !== 200) {
                 core.warning(`Unable to add comment ${body}, status ${response.status}`);
             }
         }
