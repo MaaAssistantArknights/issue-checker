@@ -310,22 +310,26 @@ async function getLabels(
   client: any,
   issue_number: number,
 ): Promise<Set<string>> {
-  const response = await client.rest.issues.listLabelsOnIssue({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    issue_number: issue_number,
-  });
-  if (response.status != 200) {
-    throw Error(
-      `unable to load labels`
-    );
-  }
-  const data = response.data
   const labels: Set<string> = new Set();
-  for (let i = 0; i < Object.keys(data).length; i++) {
-    labels.add(data[i].name)
+  try {
+    const response = await client.rest.issues.listLabelsOnIssue({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: issue_number,
+    });
+    if (response.status != 200) {
+      core.warning("Unable to load labels.");
+    } else {
+      const data = response.data
+      for (let i = 0; i < Object.keys(data).length; i++) {
+        labels.add(data[i].name)
+      }
+    }
+    return labels;
+  } catch (error) {
+    core.warning("Unable to load labels.");
+    return labels;
   }
-  return labels;
 }
 
 async function addLabels(
@@ -333,14 +337,20 @@ async function addLabels(
   issue_number: number,
   labels: string[]
 ): Promise<void> {
-  const response = await client.rest.issues.addLabels({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    issue_number: issue_number,
-    labels: labels
-  });
-  if (response.status != 200) {
-    core.warning(`unable to add labels`);
+  try {
+    const response = await client.rest.issues.addLabels({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: issue_number,
+      labels: labels
+    });
+    if (response.status != 200) {
+      core.warning("Unable to add labels.");
+    }
+  } catch (error) {
+    throw Error(
+      `unable to add labels`
+    );
   }
 }
 
@@ -349,14 +359,20 @@ async function removeLabel(
   issue_number: number,
   name: string
 ): Promise<void> {
-  const response = await client.rest.issues.removeLabel({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    issue_number: issue_number,
-    name: name
-  });
-  if (response.status != 200) {
-    core.warning(`unable to remove label ${name}`);
+  try {
+    const response = await client.rest.issues.removeLabel({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: issue_number,
+      name: name
+    });
+    if (response.status != 200) {
+      core.warning(`Unable to remove label ${name}.`);
+    }
+  } catch (error) {
+    throw Error(
+      `unable to remove label ${name}`
+    );
   }
 }
 
@@ -365,14 +381,20 @@ async function addComment(
   issue_number: number,
   body: string
 ): Promise<void> {
-  const response = await client.rest.issues.createComment({
-    owner: github.context.repo.owner,
-    repo: github.context.repo.repo,
-    issue_number: issue_number,
-    body: body
-  });
-  if (response.status != 200) {
-    core.warning(`unable to add comment ${body}`);
+  try {
+    const response = await client.rest.issues.createComment({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number: issue_number,
+      body: body
+    });
+    if (response.status != 200) {
+      core.warning(`Unable to add comment ${body}.`);
+    }
+  } catch (error) {
+    throw Error(
+      `unable to add comment ${body}`
+    );
   }
 }
 
