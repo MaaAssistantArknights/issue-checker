@@ -3,6 +3,9 @@ import * as github from '@actions/github';
 import { Octokit } from '@octokit/core';
 import * as yaml from 'js-yaml';
 
+// content, [name, regexes, disabled-if]
+type item_t = Map<string, [string, string[], string[]]>;
+
 async function run(): Promise<void> {
   try {
     // Configuration parameters
@@ -14,19 +17,19 @@ async function run(): Promise<void> {
 
     const issue_number = getIssueOrPullRequestNumber();
     if (issue_number === undefined) {
-      console.log('Could not get issue or pull request number from context, exiting');
+      core.warning("Could not get issue or pull request number from context. Exiting...");
       return;
     }
 
     const issue_body = getIssueOrPullRequestBody();
     if (issue_body === undefined) {
-      console.log('Could not get issue or pull request body from context, exiting');
+      core.warning("Could not get issue or pull request body from context. Exiting...");
       return;
     }
 
     const issue_title = getIssueOrPullRequestTitle();
     if (issue_title === undefined) {
-      console.log('Could not get issue or pull request title from context, exiting');
+      core.warning("Could not get issue or pull request title from context. Exiting...");
       return;
     }
 
@@ -42,14 +45,14 @@ async function run(): Promise<void> {
       });
       const issueCreatedAt = Date.parse((await issue).data.created_at)
       if (issueCreatedAt < notBefore) {
-        console.log("Issue is before `notBefore` configuration parameter. Exiting...")
-        process.exit(0);
+        core.info("Issue is before `notBefore` configuration parameter. Exiting...")
+        return;
       }
     }
 
     // Load our regex rules from the configuration path
     const [labelParams, commentParams]:
-      Readonly<[Map<string, [string, string[], string[]]>, Map<string, [string, string[], string[]]>]> =
+      Readonly<[item_t, item_t]> =
       await getLabelCommentRegexes(
       client,
       configPath
@@ -64,6 +67,7 @@ async function run(): Promise<void> {
       issueContent += `${issue_title}\n\n`
     }
     issueContent += issue_body
+    core.info(`Content of issue #${issue_number}:\n${issueContent}`)
 
     var [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
       labelParams,
@@ -77,14 +81,14 @@ async function run(): Promise<void> {
 
     addLabelItems = addLabelItems.filter(label => !issueLabels.has(label));
     if (addLabelItems.length > 0) {
-      console.log(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`)
+      core.info(`Adding labels ${addLabelItems.toString()} to issue #${issue_number}`)
       addLabels(client, issue_number, addLabelItems)
     }
 
     if (syncLabels) {
       removeLabelItems.forEach(function (label, index) {
         if (issueLabels.has(label)) {
-          console.log(`Removing label ${label} from issue #${issue_number}`)
+          core.info(`Removing label ${label} from issue #${issue_number}`)
           removeLabel(client, issue_number, label)
         }
       });
@@ -92,7 +96,7 @@ async function run(): Promise<void> {
 
     if (addCommentItems.length > 0) {
       addCommentItems.forEach(function (body, index) {
-        console.log(`Comment ${body} to issue #${issue_number}`)
+        core.info(`Comment ${body} to issue #${issue_number}`)
         addComment(client, issue_number, body)
       });
     }
@@ -105,7 +109,7 @@ async function run(): Promise<void> {
 }
 
 function itemAnalyze(
-  itemParams: Map<string, [string, string[], string[]]>,
+  itemParams: item_t,
   issueContent: string,
 ): [string[], string[]] {
   const addItems: string[] = []
@@ -170,7 +174,7 @@ function getIssueOrPullRequestTitle(): string | undefined {
 async function getLabelCommentRegexes(
   client: any,
   configurationPath: string
-): Promise<[Map<string, [string, string[], string[]]>, Map<string, [string, string[], string[]]>]> {
+): Promise<[item_t, item_t]> {
   const response = await client.rest.repos.getContent({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
@@ -180,14 +184,15 @@ async function getLabelCommentRegexes(
 
   const data: any = response.data
   if (!data.content) {
-    console.log('The configuration path provided is not a valid file. Exiting')
-    process.exit(1);
+    throw Error(
+      `The configuration path provided is not a valid file. Exiting`
+    );
   }
 
   const configurationContent: string = Buffer.from(data.content, 'base64').toString('utf8');
   const configObject: any = yaml.load(configurationContent);
 
-  // transform `any` => `Map<string, [string, string[], string[]]>` or throw if yaml is malformed:
+  // transform `any` => `item_t` or throw if yaml is malformed:
   return getParamsMapFromObject(configObject);
 }
 
@@ -206,8 +211,9 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
       if (typeof item[key] === 'string') {
         itemMap.set(key, item[key]);
       } else {
+        const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
         throw Error(
-          `found unexpected type for \`content\` in some item (should be string)`
+          `found unexpected type for \`content\` in ${itemRepr} (should be string)`
         );
       }
     } else if (key == "regexes") {
@@ -216,8 +222,9 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
       } else if (Array.isArray(item[key])) {
         itemMap.set(key, item[key]);
       } else {
+        const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
         throw Error(
-          `found unexpected type for \`regexes\` in some item (should be string or array of regex)`
+          `found unexpected type for \`regexes\` in ${itemRepr} (should be string or array of regex)`
         );
       }
     } else if (key == "disabled-if") {
@@ -226,8 +233,9 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
       } else if (Array.isArray(item[key])) {
         itemMap.set(key, item[key]);
       } else {
+        const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
         throw Error(
-          `found unexpected type for \`disabled-if\` in some item (should be string)`
+          `found unexpected type for \`disabled-if\` in ${itemRepr} (should be string or array of string)`
         );
       }
     }
@@ -239,8 +247,9 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
     );
   }
   if (!itemMap.has("regexes")) {
+    const itemRepr: string = itemMap.has("name") ? itemMap.get("name") : "some item";
     throw Error(
-      `some item's regexes are missing`
+      `${itemRepr}'s regexes are missing`
     );
   }
 
@@ -251,8 +260,8 @@ function getItemParamsFromItem(item: any): [string, string, string[], string[]] 
   return [itemName, itemContent, itemRegexes, itemAvoid];
 }
 
-function getItemParamsMapFromObject(configObject: any): Map<string, [string, string[], string[]]> {
-  const itemParams: Map<string, [string, string[], string[]]> = new Map();
+function getItemParamsMapFromObject(configObject: any): item_t {
+  const itemParams: item_t = new Map();
   for (const item of configObject) {
     const [itemName, itemContent, itemRegexes, itemAvoid]: [string, string, string[], string[]] = getItemParamsFromItem(item);
     itemParams.set(itemContent, [itemName, itemRegexes, itemAvoid]);
@@ -260,9 +269,9 @@ function getItemParamsMapFromObject(configObject: any): Map<string, [string, str
   return itemParams;
 }
 
-function getParamsMapFromObject(configObject: any): [Map<string, [string, string[], string[]]>, Map<string, [string, string[], string[]]>] {
-  var labelParams: Map<string, [string, string[], string[]]> = new Map();
-  var commentParams: Map<string, [string, string[], string[]]> = new Map();
+function getParamsMapFromObject(configObject: any): [item_t, item_t] {
+  var labelParams: item_t = new Map();
+  var commentParams: item_t = new Map();
   for (const key in configObject) {
     if (key === 'labels') {
       labelParams = getItemParamsMapFromObject(configObject[key]);
@@ -306,11 +315,12 @@ async function getLabels(
     repo: github.context.repo.repo,
     issue_number: issue_number,
   });
-  const data = response.data
   if (response.status != 200) {
-    console.log('Unable to load labels. Exiting...')
-    process.exit(1);
+    throw Error(
+      `unable to load labels`
+    );
   }
+  const data = response.data
   const labels: Set<string> = new Set();
   for (let i = 0; i < Object.keys(data).length; i++) {
     labels.add(data[i].name)
@@ -322,39 +332,48 @@ async function addLabels(
   client: any,
   issue_number: number,
   labels: string[]
-) {
-  await client.rest.issues.addLabels({
+): Promise<void> {
+  const response = await client.rest.issues.addLabels({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
     issue_number: issue_number,
     labels: labels
   });
+  if (response.status != 200) {
+    core.warning(`unable to add labels`);
+  }
 }
 
 async function removeLabel(
   client: any,
   issue_number: number,
   name: string
-) {
-  await client.rest.issues.removeLabel({
+): Promise<void> {
+  const response = await client.rest.issues.removeLabel({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
     issue_number: issue_number,
     name: name
   });
+  if (response.status != 200) {
+    core.warning(`unable to remove label ${name}`);
+  }
 }
 
 async function addComment(
   client: any,
   issue_number: number,
   body: string
-) {
-  await client.rest.issues.createComment({
+): Promise<void> {
+  const response = await client.rest.issues.createComment({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
     issue_number: issue_number,
     body: body
   });
+  if (response.status != 200) {
+    core.warning(`unable to add comment ${body}`);
+  }
 }
 
 run();
