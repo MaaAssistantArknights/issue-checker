@@ -83,7 +83,7 @@ function run() {
                 core.debug(`Parameter \`notBefore\` is not set or is set invalid.`);
             }
             // Load our regex rules from the configuration path
-            const itemsPromise = getLabelCommentMaps(client, configPath);
+            const itemsPromise = getLabelCommentArrays(client, configPath);
             // Get the labels have been added to the current issue
             const labelsPromise = getLabels(client, issue_number);
             const [labelParams, commentParams] = yield itemsPromise;
@@ -194,7 +194,7 @@ function getIssueOrPullRequestInfo() {
     }
     throw Error(`could not get issue or pull request from context`);
 }
-function getLabelCommentMaps(client, configurationPath) {
+function getLabelCommentArrays(client, configurationPath) {
     return __awaiter(this, void 0, void 0, function* () {
         const response = yield client.rest.repos.getContent({
             owner: github.context.repo.owner,
@@ -277,16 +277,16 @@ function getItemParamsFromItem(item) {
         throw Error(`${itemRepr}'s \`regexes\` or \`author_association\` are missing`);
     }
     const itemName = itemParams.get("name");
-    if (itemParams.has("content")) {
+    if (!itemParams.has("content")) {
         itemParams.set("content", itemName);
     }
-    if (itemParams.has("regexes")) {
+    if (!itemParams.has("regexes")) {
         itemParams.set("regexes", []);
     }
-    if (itemParams.has("author_association")) {
+    if (!itemParams.has("author_association")) {
         itemParams.set("author_association", []);
     }
-    if (itemParams.has("disabled-if")) {
+    if (!itemParams.has("disabled-if")) {
         itemParams.set("disabled-if", []);
     }
     return itemParams;

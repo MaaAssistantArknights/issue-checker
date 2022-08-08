@@ -49,7 +49,7 @@ async function run(): Promise<void> {
     }
 
     // Load our regex rules from the configuration path
-    const itemsPromise: Promise<[Array<item_t>, Array<item_t>]> = getLabelCommentMaps(
+    const itemsPromise: Promise<[Array<item_t>, Array<item_t>]> = getLabelCommentArrays(
       client,
       configPath
     );
@@ -206,7 +206,7 @@ function getIssueOrPullRequestInfo():
   );
 }
 
-async function getLabelCommentMaps(
+async function getLabelCommentArrays(
   client: any,
   configurationPath: string
 ): Promise<[Array<item_t>, Array<item_t>]> {
@@ -300,16 +300,16 @@ function getItemParamsFromItem(item: any): Map<string, any> {
   }
 
   const itemName: string = itemParams.get("name");
-  if (itemParams.has("content")) {
+  if (!itemParams.has("content")) {
     itemParams.set("content", itemName);
   }
-  if (itemParams.has("regexes")) {
+  if (!itemParams.has("regexes")) {
     itemParams.set("regexes", []);
   }
-  if (itemParams.has("author_association")) {
+  if (!itemParams.has("author_association")) {
     itemParams.set("author_association", []);
   }
-  if (itemParams.has("disabled-if")) {
+  if (!itemParams.has("disabled-if")) {
     itemParams.set("disabled-if", []);
   }
   return itemParams;
