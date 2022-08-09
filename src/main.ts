@@ -2,7 +2,7 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import * as yaml from 'js-yaml'
 
-// {name, content, regexes, author_association, disabled-if}
+// {name, content, regexes, author_association, disabled-if, mode}
 type item_t = Map<string, any>
 
 async function run(): Promise<void> {
@@ -22,16 +22,21 @@ async function run(): Promise<void> {
       core.getInput('sync-labels', {required: false})
     )
 
-    const [issue_number, issue_title, issue_body, issue_author_association]: [
-      number,
-      string,
-      string,
-      string
-    ] = getEventInfo()
+    const eventInfo: item_t = getEventInfo()
+    const event_name: string = eventInfo.get('event_name')
+    const issue_number: number = eventInfo.get('issue_number')
+    const issue_title: string = eventInfo.get('issue_title')
+    const issue_body: string = eventInfo.get('issue_body')
+    const issue_created_at: string = eventInfo.get('issue_created_at')
+    const issue_author_association: string = eventInfo.get(
+      'issue_author_association'
+    )
     if (core.isDebug()) {
+      core.debug(`event_name: ${event_name}`)
       core.debug(`issue_number: ${issue_number}`)
       core.debug(`issue_title: ${issue_title}`)
       core.debug(`issue_body: ${issue_body}`)
+      core.debug(`issue_created_at: ${issue_created_at}`)
       core.debug(`issue_author_association: ${issue_author_association}`)
     }
     // A client to load data from GitHub
@@ -39,18 +44,10 @@ async function run(): Promise<void> {
 
     // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
     if (notBefore) {
-      let issue_created_at = ''
-      if (github.context.payload.issue) {
-        issue_created_at = github.context.payload.issue.created_at
-      } else if (github.context.payload.pull_request) {
-        issue_created_at = github.context.payload.pull_request.created_at
-      }
       const issueCreatedAt: number = Date.parse(issue_created_at)
       core.info(`Issue is created at ${issue_created_at}.`)
       if (Number.isNaN(issueCreatedAt)) {
-        throw Error(
-          `Cannot deduce \`issueCreatedAt\` from ${issue_created_at}.`
-        )
+        throw Error(`cannot deduce \`issueCreatedAt\` from ${issue_created_at}`)
       } else if (issueCreatedAt < notBefore) {
         core.notice(
           'Issue is before `notBefore` configuration parameter. Exiting...'
@@ -64,7 +61,8 @@ async function run(): Promise<void> {
     // Load our regex rules from the configuration path
     const itemsPromise: Promise<[item_t[], item_t[]]> = getLabelCommentArrays(
       client,
-      configPath
+      configPath,
+      syncLabels
     )
     // Get the labels have been added to the current issue
     const labelsPromise: Promise<Set<string>> = getLabels(client, issue_number)
@@ -85,14 +83,16 @@ async function run(): Promise<void> {
     let [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
       labelParams,
       issueContent,
-      issue_author_association
+      issue_author_association,
+      event_name
     )
 
     // comments to be added
     const addCommentItems: string[] = itemAnalyze(
       commentParams,
       issueContent,
-      issue_author_association
+      issue_author_association,
+      event_name
     )[0]
 
     if (core.isDebug()) {
@@ -137,7 +137,8 @@ async function run(): Promise<void> {
 function itemAnalyze(
   itemMap: item_t[],
   issueContent: string,
-  issue_author_association: string
+  issue_author_association: string,
+  event_name: string
 ): [string[], string[]] {
   const addItems: string[] = []
   const addItemNames: Set<string> = new Set()
@@ -148,62 +149,77 @@ function itemAnalyze(
     const itemName: string = itemParams.get('name')
     const globs: string[] = itemParams.get('regexes')
     const author_association: string[] = itemParams.get('author_association')
+    const mode: item_t = itemParams.get('mode')
     const avoidItems: string[] = itemParams.get('disabled-if')
     if (
-      avoidItems.filter(avoidItem => addItemNames.has(avoidItem)).length ===
-        0 &&
-      checkRegexes(issueContent, globs) &&
-      checkAuthorAssociation(issue_author_association, author_association)
+      checkEvent(event_name, mode, 'add') &&
+      avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
+      checkAuthorAssociation(issue_author_association, author_association) &&
+      checkRegexes(issueContent, globs)
     ) {
       addItems.push(item)
       addItemNames.add(itemName)
-    } else {
+    } else if (checkEvent(event_name, mode, 'remove')) {
       removeItems.push(item)
+    } else {
+      core.debug(`Ignore item \`${itemName}\`.`)
     }
   }
   return [addItems, removeItems]
 }
 
-function getEventDetails(
-  issue: any,
-  repr: string
-): [number, string, string, string] {
+function getEventDetails(issue: any, repr: string): item_t {
+  const eventDetails: item_t = new Map()
   try {
-    return [
-      issue.number ? issue.number : NaN,
-      issue.title ? issue.title : '',
-      issue.body ? issue.body : '',
+    eventDetails.set('issue_number', issue.number ? issue.number : NaN)
+    eventDetails.set('issue_title', issue.title ? issue.title : '')
+    eventDetails.set('issue_body', issue.body ? issue.body : '')
+    eventDetails.set(
+      'issue_author_association',
       issue.author_association ? issue.author_association : ''
-    ]
+    )
+    eventDetails.set(
+      'issue_created_at',
+      issue.created_at ? issue.created_at : ''
+    )
   } catch (error) {
     throw Error(`could not get ${repr} from context (${error})`)
   }
+  return eventDetails
 }
 
-function getEventInfo(): [number, string, string, string] {
-  const eventName: string = github.context.eventName
-  core.info(`Event: ${github.context.eventName}`)
-  if (eventName === 'issues') {
-    return getEventDetails(github.context.payload.issue, 'issue')
+function getEventInfo(): item_t {
+  const payload = github.context.payload
+  const event_name: string = github.context.eventName
+  if (event_name === 'issues') {
+    const eventInfo: item_t = getEventDetails(payload.issue, 'issue')
+    eventInfo.set('event_name', event_name)
+    return eventInfo
   } else if (
-    eventName === 'pull_request_target' ||
-    eventName === 'pull_request'
+    event_name === 'pull_request_target' ||
+    event_name === 'pull_request'
   ) {
-    return getEventDetails(github.context.payload.pull_request, 'pull request')
-  } else if (eventName === 'issue_comment') {
-    const issue = getEventDetails(github.context.payload.issue, 'issue')
-    const comment = getEventDetails(
-      github.context.payload.comment,
-      'issue comment'
+    const eventInfo: item_t = getEventDetails(
+      payload.pull_request,
+      'pull request'
     )
-    return [issue[0], comment[1], comment[2], comment[3]]
+    eventInfo.set('event_name', event_name)
+    return eventInfo
+  } else if (event_name === 'issue_comment') {
+    const eventInfo: item_t = getEventDetails(payload.comment, 'issue comment')
+    const issue = getEventDetails(payload.issue, 'issue')
+    eventInfo.set('event_name', event_name)
+    eventInfo.set('issue_number', issue.get('issue_number'))
+    return eventInfo
+  } else {
+    throw Error(`could not handle event \`${event_name}\``)
   }
-  throw Error(`could not get event from context`)
 }
 
 async function getLabelCommentArrays(
   client: any,
-  configurationPath: string
+  configurationPath: string,
+  syncLabels: number
 ): Promise<[item_t[], item_t[]]> {
   const response = await client.rest.repos.getContent({
     owner: github.context.repo.owner,
@@ -224,10 +240,10 @@ async function getLabelCommentArrays(
   const configObject: any = yaml.load(configurationContent)
 
   // transform `any` => `item_t[]` or throw if yaml is malformed:
-  return getArraysFromObject(configObject)
+  return getArraysFromObject(configObject, syncLabels)
 }
 
-function getItemParamsFromItem(item: any): item_t {
+function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
   const itemParams: item_t = new Map()
   for (const key in item) {
     if (key === 'name') {
@@ -275,6 +291,8 @@ function getItemParamsFromItem(item: any): item_t {
           `found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`
         )
       }
+    } else if (key === 'mode') {
+      itemParams.set(key, getModeFromObject(item[key]))
     } else if (key === 'disabled-if') {
       if (typeof item[key] === 'string') {
         itemParams.set(key, [item[key]])
@@ -288,6 +306,8 @@ function getItemParamsFromItem(item: any): item_t {
           `found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`
         )
       }
+    } else {
+      throw Error(`found unexpected field \`${key}\``)
     }
   }
 
@@ -316,32 +336,79 @@ function getItemParamsFromItem(item: any): item_t {
   if (!itemParams.has('disabled-if')) {
     itemParams.set('disabled-if', [])
   }
+  if (!itemParams.has('mode')) {
+    itemParams.set('mode', default_mode)
+  }
   return itemParams
 }
 
-function getItemArrayFromObject(configObject: any): item_t[] {
+function getModeFromObject(configObject: any): item_t {
+  const modeMap: item_t = new Map()
+  for (const key in configObject) {
+    modeMap.set(key, configObject[key])
+  }
+  return modeMap
+}
+
+function getItemArrayFromObject(
+  configObject: any,
+  default_mode: item_t
+): item_t[] {
   const itemArray: item_t[] = []
   for (const item of configObject) {
-    const itemParams: item_t = getItemParamsFromItem(item)
+    const itemParams: item_t = getItemParamsFromItem(item, default_mode)
     itemArray.push(itemParams)
   }
   return itemArray
 }
 
-function getArraysFromObject(configObject: any): [item_t[], item_t[]] {
+function getArraysFromObject(
+  configObject: any,
+  syncLabels: number
+): [item_t[], item_t[]] {
+  let labelParamsObject: any = []
+  let commentParamsObject: any = []
+
   let labelParams: item_t[] = []
   let commentParams: item_t[] = []
+  let default_mode: item_t | undefined = undefined
+
   for (const key in configObject) {
     if (key === 'labels') {
-      labelParams = getItemArrayFromObject(configObject[key])
+      labelParamsObject = configObject[key]
     } else if (key === 'comments') {
-      commentParams = getItemArrayFromObject(configObject[key])
+      commentParamsObject = configObject[key]
+    } else if (key === 'default-mode') {
+      default_mode = getModeFromObject(configObject[key])
     } else {
       throw Error(
         `found unexpected key for ${key} (should be \`labels\` or \`comments\`)`
       )
     }
   }
+  if (default_mode === undefined) {
+    if (syncLabels === 1) {
+      default_mode = new Map([
+        ['pull_request', ['add', 'remove']],
+        ['pull_request_target', ['add', 'remove']],
+        ['issue', ['add', 'remove']],
+        ['issue_comment', ['add', 'remove']]
+      ])
+    } else if (syncLabels === 0) {
+      default_mode = new Map([
+        ['pull_request', ['add']],
+        ['pull_request_target', ['add']],
+        ['issue', ['add']],
+        ['issue_comment', ['add']]
+      ])
+    } else {
+      throw Error(
+        `found unexpected value of syncLabels (${syncLabels}, should be 0 or 1)`
+      )
+    }
+  }
+  labelParams = getItemArrayFromObject(labelParamsObject, default_mode)
+  commentParams = getItemArrayFromObject(commentParamsObject, default_mode)
   return [labelParams, commentParams]
 }
 
@@ -363,6 +430,13 @@ function checkRegexes(issue_body: string, regexes: string[]): boolean {
     }
   }
   return true
+}
+
+function checkEvent(event_name: string, mode: item_t, type: string): boolean {
+  return (
+    mode.has(event_name) &&
+    (mode.get(event_name).includes(type) || mode.get(event_name) === type)
+  )
 }
 
 function checkAuthorAssociation(
