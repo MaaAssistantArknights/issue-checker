@@ -147,15 +147,18 @@ function itemAnalyze(itemMap, issueContent, issue_author_association, event_name
         const author_association = itemParams.get('author_association');
         const mode = itemParams.get('mode');
         const avoidItems = itemParams.get('disabled-if');
-        if (checkEvent(event_name, mode, 'add') &&
-            avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
-            checkAuthorAssociation(issue_author_association, author_association) &&
-            checkRegexes(issueContent, globs)) {
-            addItems.push(item);
-            addItemNames.add(itemName);
-        }
-        else if (checkEvent(event_name, mode, 'remove')) {
-            removeItems.push(item);
+        if (checkEvent(event_name, mode, undefined)) {
+            if (avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
+                checkAuthorAssociation(issue_author_association, author_association) &&
+                checkRegexes(issueContent, globs)) {
+                if (checkEvent(event_name, mode, 'add')) {
+                    addItems.push(item);
+                    addItemNames.add(itemName);
+                }
+            }
+            else if (checkEvent(event_name, mode, 'remove')) {
+                removeItems.push(item);
+            }
         }
         else {
             core.debug(`mode: ${Array.from(mode).toString()}`);
@@ -398,7 +401,9 @@ function checkRegexes(issue_body, regexes) {
 }
 function checkEvent(event_name, mode, type) {
     return (mode.has(event_name) &&
-        (mode.get(event_name).includes(type) || mode.get(event_name) === type));
+        (type === undefined ||
+            mode.get(event_name).includes(type) ||
+            mode.get(event_name) === type));
 }
 function checkAuthorAssociation(issue_author_association, regexes) {
     let matched;

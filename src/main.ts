@@ -151,16 +151,19 @@ function itemAnalyze(
     const author_association: string[] = itemParams.get('author_association')
     const mode: item_t = itemParams.get('mode')
     const avoidItems: string[] = itemParams.get('disabled-if')
-    if (
-      checkEvent(event_name, mode, 'add') &&
-      avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
-      checkAuthorAssociation(issue_author_association, author_association) &&
-      checkRegexes(issueContent, globs)
-    ) {
-      addItems.push(item)
-      addItemNames.add(itemName)
-    } else if (checkEvent(event_name, mode, 'remove')) {
-      removeItems.push(item)
+    if (checkEvent(event_name, mode, undefined)) {
+      if (
+        avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
+        checkAuthorAssociation(issue_author_association, author_association) &&
+        checkRegexes(issueContent, globs)
+      ) {
+        if (checkEvent(event_name, mode, 'add')) {
+          addItems.push(item)
+          addItemNames.add(itemName)
+        }
+      } else if (checkEvent(event_name, mode, 'remove')) {
+        removeItems.push(item)
+      }
     } else {
       core.debug(`mode: ${Array.from(mode).toString()}`)
       core.debug(`Ignore item \`${itemName}\`.`)
@@ -433,10 +436,16 @@ function checkRegexes(issue_body: string, regexes: string[]): boolean {
   return true
 }
 
-function checkEvent(event_name: string, mode: item_t, type: string): boolean {
+function checkEvent(
+  event_name: string,
+  mode: item_t,
+  type: string | undefined
+): boolean {
   return (
     mode.has(event_name) &&
-    (mode.get(event_name).includes(type) || mode.get(event_name) === type)
+    (type === undefined ||
+      mode.get(event_name).includes(type) ||
+      mode.get(event_name) === type)
   )
 }
 
