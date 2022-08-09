@@ -53,28 +53,29 @@ function run() {
             const notBefore = Date.parse(core.getInput('not-before', { required: false }));
             const includeTitle = parseInt(core.getInput('include-title', { required: false }));
             const syncLabels = parseInt(core.getInput('sync-labels', { required: false }));
-            const [issue_number, issue_title, issue_body, issue_author_association] = getEventInfo();
+            const eventInfo = getEventInfo();
+            const event_name = eventInfo.get('event_name');
+            const issue_number = eventInfo.get('issue_number');
+            const issue_title = eventInfo.get('issue_title');
+            const issue_body = eventInfo.get('issue_body');
+            const issue_created_at = eventInfo.get('issue_created_at');
+            const issue_author_association = eventInfo.get('issue_author_association');
             if (core.isDebug()) {
+                core.debug(`event_name: ${event_name}`);
                 core.debug(`issue_number: ${issue_number}`);
                 core.debug(`issue_title: ${issue_title}`);
                 core.debug(`issue_body: ${issue_body}`);
+                core.debug(`issue_created_at: ${issue_created_at}`);
                 core.debug(`issue_author_association: ${issue_author_association}`);
             }
             // A client to load data from GitHub
             const client = github.getOctokit(token);
             // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
             if (notBefore) {
-                let issue_created_at = '';
-                if (github.context.payload.issue) {
-                    issue_created_at = github.context.payload.issue.created_at;
-                }
-                else if (github.context.payload.pull_request) {
-                    issue_created_at = github.context.payload.pull_request.created_at;
-                }
                 const issueCreatedAt = Date.parse(issue_created_at);
                 core.info(`Issue is created at ${issue_created_at}.`);
                 if (Number.isNaN(issueCreatedAt)) {
-                    throw Error(`Cannot deduce \`issueCreatedAt\` from ${issue_created_at}.`);
+                    throw Error(`cannot deduce \`issueCreatedAt\` from ${issue_created_at}`);
                 }
                 else if (issueCreatedAt < notBefore) {
                     core.notice('Issue is before `notBefore` configuration parameter. Exiting...');
@@ -85,7 +86,7 @@ function run() {
                 core.debug(`Parameter \`notBefore\` is not set or is set invalid.`);
             }
             // Load our regex rules from the configuration path
-            const itemsPromise = getLabelCommentArrays(client, configPath);
+            const itemsPromise = getLabelCommentArrays(client, configPath, syncLabels);
             // Get the labels have been added to the current issue
             const labelsPromise = getLabels(client, issue_number);
             const [labelParams, commentParams] = yield itemsPromise;
@@ -97,9 +98,9 @@ function run() {
             issueContent += issue_body;
             core.info(`Content of issue #${issue_number}:\n${issueContent}`);
             // labels to be added & removed
-            let [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent, issue_author_association);
+            let [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent, issue_author_association, event_name);
             // comments to be added
-            const addCommentItems = itemAnalyze(commentParams, issueContent, issue_author_association)[0];
+            const addCommentItems = itemAnalyze(commentParams, issueContent, issue_author_association, event_name)[0];
             if (core.isDebug()) {
                 core.debug(`labels have been added: [${Array.from(issueLabels)}]`);
                 core.debug(`labels to be added: [${addLabelItems.toString()}]`);
@@ -135,7 +136,7 @@ function run() {
         }
     });
 }
-function itemAnalyze(itemMap, issueContent, issue_author_association) {
+function itemAnalyze(itemMap, issueContent, issue_author_association, event_name) {
     const addItems = [];
     const addItemNames = new Set();
     const removeItems = [];
@@ -144,51 +145,64 @@ function itemAnalyze(itemMap, issueContent, issue_author_association) {
         const itemName = itemParams.get('name');
         const globs = itemParams.get('regexes');
         const author_association = itemParams.get('author_association');
+        const mode = itemParams.get('mode');
         const avoidItems = itemParams.get('disabled-if');
-        if (avoidItems.filter(avoidItem => addItemNames.has(avoidItem)).length ===
-            0 &&
-            checkRegexes(issueContent, globs) &&
-            checkAuthorAssociation(issue_author_association, author_association)) {
+        if (checkEvent(event_name, mode, 'add') &&
+            avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
+            checkAuthorAssociation(issue_author_association, author_association) &&
+            checkRegexes(issueContent, globs)) {
             addItems.push(item);
             addItemNames.add(itemName);
         }
-        else {
+        else if (checkEvent(event_name, mode, 'remove')) {
             removeItems.push(item);
+        }
+        else {
+            core.debug(`Ignore item \`${itemName}\`.`);
         }
     }
     return [addItems, removeItems];
 }
 function getEventDetails(issue, repr) {
+    const eventDetails = new Map();
     try {
-        return [
-            issue.number ? issue.number : NaN,
-            issue.title ? issue.title : '',
-            issue.body ? issue.body : '',
-            issue.author_association ? issue.author_association : ''
-        ];
+        eventDetails.set('issue_number', issue.number ? issue.number : NaN);
+        eventDetails.set('issue_title', issue.title ? issue.title : '');
+        eventDetails.set('issue_body', issue.body ? issue.body : '');
+        eventDetails.set('issue_author_association', issue.author_association ? issue.author_association : '');
+        eventDetails.set('issue_created_at', issue.created_at ? issue.created_at : '');
     }
     catch (error) {
         throw Error(`could not get ${repr} from context (${error})`);
     }
+    return eventDetails;
 }
 function getEventInfo() {
-    const eventName = github.context.eventName;
-    core.info(`Event: ${github.context.eventName}`);
-    if (eventName === 'issues') {
-        return getEventDetails(github.context.payload.issue, 'issue');
+    const payload = github.context.payload;
+    const event_name = github.context.eventName;
+    if (event_name === 'issues') {
+        const eventInfo = getEventDetails(payload.issue, 'issue');
+        eventInfo.set('event_name', event_name);
+        return eventInfo;
     }
-    else if (eventName === 'pull_request_target' ||
-        eventName === 'pull_request') {
-        return getEventDetails(github.context.payload.pull_request, 'pull request');
+    else if (event_name === 'pull_request_target' ||
+        event_name === 'pull_request') {
+        const eventInfo = getEventDetails(payload.pull_request, 'pull request');
+        eventInfo.set('event_name', event_name);
+        return eventInfo;
     }
-    else if (eventName === 'issue_comment') {
-        const issue = getEventDetails(github.context.payload.issue, 'issue');
-        const comment = getEventDetails(github.context.payload.comment, 'issue comment');
-        return [issue[0], comment[1], comment[2], comment[3]];
+    else if (event_name === 'issue_comment') {
+        const eventInfo = getEventDetails(payload.comment, 'issue comment');
+        const issue = getEventDetails(payload.issue, 'issue');
+        eventInfo.set('event_name', event_name);
+        eventInfo.set('issue_number', issue.get('issue_number'));
+        return eventInfo;
     }
-    throw Error(`could not get event from context`);
+    else {
+        throw Error(`could not handle event \`${event_name}\``);
+    }
 }
-function getLabelCommentArrays(client, configurationPath) {
+function getLabelCommentArrays(client, configurationPath, syncLabels) {
     return __awaiter(this, void 0, void 0, function* () {
         const response = yield client.rest.repos.getContent({
             owner: github.context.repo.owner,
@@ -203,10 +217,10 @@ function getLabelCommentArrays(client, configurationPath) {
         const configurationContent = Buffer.from(data.content, 'base64').toString('utf8');
         const configObject = yaml.load(configurationContent);
         // transform `any` => `item_t[]` or throw if yaml is malformed:
-        return getArraysFromObject(configObject);
+        return getArraysFromObject(configObject, syncLabels);
     });
 }
-function getItemParamsFromItem(item) {
+function getItemParamsFromItem(item, default_mode) {
     const itemParams = new Map();
     for (const key in item) {
         if (key === 'name') {
@@ -256,6 +270,9 @@ function getItemParamsFromItem(item) {
                 throw Error(`found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`);
             }
         }
+        else if (key === 'mode') {
+            itemParams.set(key, getModeFromObject(item[key]));
+        }
         else if (key === 'disabled-if') {
             if (typeof item[key] === 'string') {
                 itemParams.set(key, [item[key]]);
@@ -269,6 +286,9 @@ function getItemParamsFromItem(item) {
                     : 'some item';
                 throw Error(`found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`);
             }
+        }
+        else {
+            throw Error(`found unexpected field \`${key}\``);
         }
     }
     if (!itemParams.has('name')) {
@@ -293,30 +313,69 @@ function getItemParamsFromItem(item) {
     if (!itemParams.has('disabled-if')) {
         itemParams.set('disabled-if', []);
     }
+    if (!itemParams.has('mode')) {
+        itemParams.set('mode', default_mode);
+    }
     return itemParams;
 }
-function getItemArrayFromObject(configObject) {
+function getModeFromObject(configObject) {
+    const modeMap = new Map();
+    for (const key in configObject) {
+        modeMap.set(key, configObject[key]);
+    }
+    return modeMap;
+}
+function getItemArrayFromObject(configObject, default_mode) {
     const itemArray = [];
     for (const item of configObject) {
-        const itemParams = getItemParamsFromItem(item);
+        const itemParams = getItemParamsFromItem(item, default_mode);
         itemArray.push(itemParams);
     }
     return itemArray;
 }
-function getArraysFromObject(configObject) {
+function getArraysFromObject(configObject, syncLabels) {
+    let labelParamsObject = [];
+    let commentParamsObject = [];
     let labelParams = [];
     let commentParams = [];
+    let default_mode = undefined;
     for (const key in configObject) {
         if (key === 'labels') {
-            labelParams = getItemArrayFromObject(configObject[key]);
+            labelParamsObject = configObject[key];
         }
         else if (key === 'comments') {
-            commentParams = getItemArrayFromObject(configObject[key]);
+            commentParamsObject = configObject[key];
+        }
+        else if (key === 'default-mode') {
+            default_mode = getModeFromObject(configObject[key]);
         }
         else {
             throw Error(`found unexpected key for ${key} (should be \`labels\` or \`comments\`)`);
         }
     }
+    if (default_mode === undefined) {
+        if (syncLabels === 1) {
+            default_mode = new Map([
+                ['pull_request', ['add', 'remove']],
+                ['pull_request_target', ['add', 'remove']],
+                ['issue', ['add', 'remove']],
+                ['issue_comment', ['add', 'remove']]
+            ]);
+        }
+        else if (syncLabels === 0) {
+            default_mode = new Map([
+                ['pull_request', ['add']],
+                ['pull_request_target', ['add']],
+                ['issue', ['add']],
+                ['issue_comment', ['add']]
+            ]);
+        }
+        else {
+            throw Error(`found unexpected value of syncLabels (${syncLabels}, should be 0 or 1)`);
+        }
+    }
+    labelParams = getItemArrayFromObject(labelParamsObject, default_mode);
+    commentParams = getItemArrayFromObject(commentParamsObject, default_mode);
     return [labelParams, commentParams];
 }
 function checkRegexes(issue_body, regexes) {
@@ -335,6 +394,10 @@ function checkRegexes(issue_body, regexes) {
         }
     }
     return true;
+}
+function checkEvent(event_name, mode, type) {
+    return (mode.has(event_name) &&
+        (mode.get(event_name).includes(type) || mode.get(event_name) === type));
 }
 function checkAuthorAssociation(issue_author_association, regexes) {
     let matched;
