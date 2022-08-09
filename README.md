@@ -93,7 +93,9 @@ jobs:
         sync-labels: 1
 ```
 
-_Note: This grants access to the `GITHUB_TOKEN` so the action can make calls to GitHub's rest API_
+_Warning: Do not use triggers other than `pull_request`, `pull_request_target`, `issues` and `issue_comment`, unless you know what you are doing._
+
+_Note: This grants access to the `GITHUB_TOKEN` so the action can make calls to GitHub's rest API._
 
 #### Inputs
 
