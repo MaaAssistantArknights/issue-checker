@@ -42,88 +42,100 @@ async function run(): Promise<void> {
     // A client to load data from GitHub
     const client = github.getOctokit(token)
 
-    // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
-    if (notBefore) {
-      const issueCreatedAt: number = Date.parse(issue_created_at)
-      core.info(`Issue is created at ${issue_created_at}.`)
-      if (Number.isNaN(issueCreatedAt)) {
-        throw Error(`cannot deduce \`issueCreatedAt\` from ${issue_created_at}`)
-      } else if (issueCreatedAt < notBefore) {
-        core.notice(
-          'Issue is before `notBefore` configuration parameter. Exiting...'
-        )
-        return
+    if (event_name === 'push') {
+      if (issue_number) {
+        core.notice(`This push fixed issue #${issue_number}.`)
+        addLabels(client, issue_number, ['fixed'])
       }
     } else {
-      core.debug(`Parameter \`notBefore\` is not set or is set invalid.`)
-    }
+      // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
+      if (notBefore) {
+        const issueCreatedAt: number = Date.parse(issue_created_at)
+        core.info(`Issue is created at ${issue_created_at}.`)
+        if (Number.isNaN(issueCreatedAt)) {
+          throw Error(
+            `cannot deduce \`issueCreatedAt\` from ${issue_created_at}`
+          )
+        } else if (issueCreatedAt < notBefore) {
+          core.notice(
+            'Issue is before `notBefore` configuration parameter. Exiting...'
+          )
+          return
+        }
+      } else {
+        core.debug(`Parameter \`notBefore\` is not set or is set invalid.`)
+      }
 
-    // Load our regex rules from the configuration path
-    const itemsPromise: Promise<[item_t[], item_t[]]> = getLabelCommentArrays(
-      client,
-      configPath,
-      syncLabels
-    )
-    // Get the labels have been added to the current issue
-    const labelsPromise: Promise<Set<string>> = getLabels(client, issue_number)
-
-    const [labelParams, commentParams]: [item_t[], item_t[]] =
-      await itemsPromise
-    const issueLabels: Set<string> = await labelsPromise
-
-    let issueContent = ''
-    if (includeTitle === 1) {
-      issueContent += `${issue_title}\n\n`
-    }
-    issueContent += issue_body
-
-    core.info(`Content of issue #${issue_number}:\n${issueContent}`)
-
-    // labels to be added & removed
-    let [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
-      labelParams,
-      issueContent,
-      issue_author_association,
-      event_name
-    )
-
-    // comments to be added
-    const addCommentItems: string[] = itemAnalyze(
-      commentParams,
-      issueContent,
-      issue_author_association,
-      event_name
-    )[0]
-
-    if (core.isDebug()) {
-      core.debug(`labels have been added: [${Array.from(issueLabels)}]`)
-      core.debug(`labels to be added: [${addLabelItems.toString()}]`)
-      core.debug(`labels to be removed: [${removeLabelItems.toString()}]`)
-    }
-
-    // some may have been added, remove them
-    addLabelItems = addLabelItems.filter(label => !issueLabels.has(label))
-    if (addLabelItems.length > 0) {
-      core.info(
-        `Adding labels ${addLabelItems.toString()} to issue #${issue_number}`
+      // Load our regex rules from the configuration path
+      const itemsPromise: Promise<[item_t[], item_t[]]> = getLabelCommentArrays(
+        client,
+        configPath,
+        syncLabels
       )
-      addLabels(client, issue_number, addLabelItems)
-    }
+      // Get the labels have been added to the current issue
+      const labelsPromise: Promise<Set<string>> = getLabels(
+        client,
+        issue_number
+      )
 
-    if (syncLabels) {
-      for (const label of removeLabelItems) {
-        // skip labels that have not been added
-        if (issueLabels.has(label)) {
-          core.info(`Removing label ${label} from issue #${issue_number}`)
-          removeLabel(client, issue_number, label)
+      const [labelParams, commentParams]: [item_t[], item_t[]] =
+        await itemsPromise
+      const issueLabels: Set<string> = await labelsPromise
+
+      let issueContent = ''
+      if (includeTitle === 1) {
+        issueContent += `${issue_title}\n\n`
+      }
+      issueContent += issue_body
+
+      core.info(`Content of issue #${issue_number}:\n${issueContent}`)
+
+      // labels to be added & removed
+      let [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
+        labelParams,
+        issueContent,
+        issue_author_association,
+        event_name
+      )
+
+      // comments to be added
+      const addCommentItems: string[] = itemAnalyze(
+        commentParams,
+        issueContent,
+        issue_author_association,
+        event_name
+      )[0]
+
+      if (core.isDebug()) {
+        core.debug(`labels have been added: [${Array.from(issueLabels)}]`)
+        core.debug(`labels to be added: [${addLabelItems.toString()}]`)
+        core.debug(`labels to be removed: [${removeLabelItems.toString()}]`)
+      }
+
+      // some may have been added, remove them
+      addLabelItems = addLabelItems.filter(label => !issueLabels.has(label))
+      if (addLabelItems.length > 0) {
+        core.info(
+          `Adding labels ${addLabelItems.toString()} to issue #${issue_number}`
+        )
+        addLabels(client, issue_number, addLabelItems)
+      }
+
+      if (syncLabels) {
+        for (const label of removeLabelItems) {
+          // skip labels that have not been added
+          if (issueLabels.has(label)) {
+            core.info(`Removing label ${label} from issue #${issue_number}`)
+            removeLabel(client, issue_number, label)
+          }
         }
       }
-    }
 
-    if (addCommentItems.length > 0) {
-      for (const body of addCommentItems) {
-        core.info(`Comment ${body} to issue #${issue_number}`)
-        addComment(client, issue_number, body)
+      if (addCommentItems.length > 0) {
+        for (const body of addCommentItems) {
+          core.info(`Comment ${body} to issue #${issue_number}`)
+          addComment(client, issue_number, body)
+        }
       }
     }
   } catch (error) {
@@ -192,6 +204,26 @@ function getEventDetails(issue: any, repr: string): item_t {
   return eventDetails
 }
 
+function getPushEventDetails(payload: any): item_t {
+  const eventDetails: item_t = new Map()
+  try {
+    let messages = ''
+    for (const commit of payload.commits) messages += `${commit.message}\n\n`
+    let issue_number = NaN
+    if (messages.match(/(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/)) {
+      issue_number = parseInt(RegExp.$1)
+    }
+    eventDetails.set('issue_number', issue_number)
+    eventDetails.set('issue_title', '')
+    eventDetails.set('issue_body', messages)
+    eventDetails.set('issue_author_association', '') // TODO
+    eventDetails.set('issue_created_at', '1970-01-01T00:00:00Z') // TODO
+  } catch (error) {
+    throw Error(`could not get push event details from context (${error})`)
+  }
+  return eventDetails
+}
+
 function getEventInfo(): item_t {
   const payload = github.context.payload
   const event_name: string = github.context.eventName
@@ -214,6 +246,10 @@ function getEventInfo(): item_t {
     const issue = getEventDetails(payload.issue, 'issue')
     eventInfo.set('event_name', event_name)
     eventInfo.set('issue_number', issue.get('issue_number'))
+    return eventInfo
+  } else if (event_name === 'push') {
+    const eventInfo: item_t = getPushEventDetails(payload)
+    eventInfo.set('event_name', event_name)
     return eventInfo
   } else {
     throw Error(`could not handle event \`${event_name}\``)
@@ -485,13 +521,10 @@ async function getLabels(
       repo: github.context.repo.repo,
       issue_number
     })
-    if (response.status !== 200) {
-      core.warning(`Unable to load labels, status ${response.status}`)
-    } else {
-      const data = response.data
-      for (let i = 0; i < Object.keys(data).length; i++) {
-        labels.add(data[i].name)
-      }
+    core.debug(`Load labels status ${response.status}`)
+    const data = response.data
+    for (let i = 0; i < Object.keys(data).length; i++) {
+      labels.add(data[i].name)
     }
     return labels
   } catch (error) {
@@ -512,9 +545,7 @@ async function addLabels(
       issue_number,
       labels
     })
-    if (response.status !== 200) {
-      core.warning(`Unable to add labels, status ${response.status}`)
-    }
+    core.debug(`Add labels status ${response.status}`)
   } catch (error) {
     core.warning(`Unable to add labels. (${error})`)
   }
@@ -532,9 +563,7 @@ async function removeLabel(
       issue_number,
       name
     })
-    if (response.status !== 200) {
-      core.warning(`Unable to remove label ${name}, status ${response.status}`)
-    }
+    core.debug(`Remove label \`${name}\` status ${response.status}`)
   } catch (error) {
     core.warning(`Unable to remove label ${name}. (${error})`)
   }
@@ -552,11 +581,15 @@ async function addComment(
       issue_number,
       body
     })
-    if (response.status !== 200) {
-      core.warning(`Unable to add comment ${body}, status ${response.status}`)
-    }
+    core.debug(
+      `Add comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
+      }`
+    )
   } catch (error) {
-    core.warning(`Unable to add comment ${body}. (${error})`)
+    core.warning(
+      `Unable to add comment \`${body.split('\n').join('\\n')}\`. (${error})`
+    )
   }
 }
 
