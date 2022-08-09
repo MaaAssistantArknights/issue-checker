@@ -39,6 +39,28 @@ comments:
     'Uploading'
 ```
 
+The format of the configuration file is shown below.
+
+``` yaml
+default-mode:                 # optional
+  pull_request:               # optional, choices [pull_request, pull_request_target, issues, issue_comment]
+  - add                       # optional, choices [add, remove]
+  - ...
+  ...
+labels:                       # optional, choices [labels, comments]
+- name: string                # required
+  content: string             # optional, default ${name}
+  regexes: string[] | string  # optional, required if ${author_association} undefined
+  author_association: string  # optional, required if ${regexes} undefined
+  mode:                       # optional
+    pull_request:             # optional, choices [pull_request, pull_request_target, issues, issue_comment]
+    - add                     # optional, choices [add, remove]
+    - ...
+    ...
+- ...
+...
+```
+
 ### Create Workflow
 
 Create a workflow (eg: `.github/workflows/issue-checker.yml` see [Creating a Workflow file](https://help.github.com/en/articles/configuring-a-workflow#creating-a-workflow-file)) to utilize the labeler action with content:
@@ -58,7 +80,7 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-    - uses: zzyyyl/issue-checker@v1.3
+    - uses: zzyyyl/issue-checker@v1.4
       with:
         repo-token: "${{ secrets.GITHUB_TOKEN }}"
         configuration-path: .github/issue-checker.yml
