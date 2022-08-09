@@ -42,19 +42,23 @@ comments:
 The format of the configuration file is shown below.
 
 ``` yaml
-default-mode:                 # optional
-  pull_request:               # optional, choices [pull_request, pull_request_target, issues, issue_comment]
-  - add                       # optional, choices [add, remove]
+default-mode:          # optional
+  pull_request:        # optional, choices [pull_request, pull_request_target, issues, issue_comment]
+  - add                # optional, choices [add, remove]
   - ...
   ...
-labels:                       # optional, choices [labels, comments]
-- name: string                # required
-  content: string             # optional, default ${name}
-  regexes: string[] | string  # optional, required if ${author_association} undefined
-  author_association: string  # optional, required if ${regexes} undefined
-  mode:                       # optional
-    pull_request:             # optional, choices [pull_request, pull_request_target, issues, issue_comment]
-    - add                     # optional, choices [add, remove]
+labels:                # optional, choices [labels, comments]
+- name: string         # required
+  content: string      # optional, default ${name}
+  regexes:             # optional, required if ${author_association} undefined
+    string[] | string
+  author_association:  # optional, required if ${regexes} undefined
+    string
+  disabled-if:         # optional
+    string[] | string
+  mode:                # optional
+    pull_request:      # optional, choices [pull_request, pull_request_target, issues, issue_comment]
+    - add              # optional, choices [add, remove]
     - ...
     ...
 - ...
