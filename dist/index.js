@@ -158,6 +158,7 @@ function itemAnalyze(itemMap, issueContent, issue_author_association, event_name
             removeItems.push(item);
         }
         else {
+            core.debug(`mode: ${Array.from(mode).toString()}`);
             core.debug(`Ignore item \`${itemName}\`.`);
         }
     }

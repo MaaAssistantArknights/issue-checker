@@ -162,6 +162,7 @@ function itemAnalyze(
     } else if (checkEvent(event_name, mode, 'remove')) {
       removeItems.push(item)
     } else {
+      core.debug(`mode: ${Array.from(mode).toString()}`)
       core.debug(`Ignore item \`${itemName}\`.`)
     }
   }
