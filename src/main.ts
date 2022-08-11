@@ -246,6 +246,7 @@ function getEventInfo(): item_t {
     const issue = getEventDetails(payload.issue, 'issue')
     eventInfo.set('event_name', event_name)
     eventInfo.set('issue_number', issue.get('issue_number'))
+    eventInfo.set('issue_title', issue.get('issue_title'))
     return eventInfo
   } else if (event_name === 'push') {
     const eventInfo: item_t = getPushEventDetails(payload)
