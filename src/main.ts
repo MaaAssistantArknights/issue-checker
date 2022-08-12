@@ -24,39 +24,40 @@ async function run(): Promise<void> {
 
     const eventInfo: item_t = getEventInfo()
     const event_name: string = eventInfo.get('event_name')
-    const issue_number: number = eventInfo.get('issue_number')
-    const issue_title: string = eventInfo.get('issue_title')
-    const issue_body: string = eventInfo.get('issue_body')
-    const issue_created_at: string = eventInfo.get('issue_created_at')
-    const issue_author_association: string = eventInfo.get(
-      'issue_author_association'
-    )
+    const issue_number: number | number[] = eventInfo.get('issue_number')
+    const title: string = eventInfo.get('title')
+    const body: string = eventInfo.get('body')
+    const created_at: string = eventInfo.get('created_at')
+    const author_association: string = eventInfo.get('author_association')
     if (core.isDebug()) {
       core.debug(`event_name: ${event_name}`)
       core.debug(`issue_number: ${issue_number}`)
-      core.debug(`issue_title: ${issue_title}`)
-      core.debug(`issue_body: ${issue_body}`)
-      core.debug(`issue_created_at: ${issue_created_at}`)
-      core.debug(`issue_author_association: ${issue_author_association}`)
+      core.debug(`title: ${title}`)
+      core.debug(`body: ${body}`)
+      core.debug(`created_at: ${created_at}`)
+      core.debug(`author_association: ${author_association}`)
     }
     // A client to load data from GitHub
     const client = github.getOctokit(token)
 
-    if (event_name === 'push') {
-      if (issue_number) {
-        core.notice(`This push fixed issue #${issue_number}.`)
-        addLabels(client, issue_number, ['fixed'])
+    if (event_name === 'push' || event_name === 'commit_comment') {
+      if (issue_number && Array.isArray(issue_number)) {
+        for (const a_issue_number of issue_number) {
+          core.notice(`This push fixed issue #${a_issue_number}.`)
+          addLabels(client, a_issue_number, ['fixed'])
+        }
       }
     } else {
+      if (Array.isArray(issue_number)) {
+        throw Error(`unknown error`)
+      }
       // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
       if (notBefore) {
-        const issueCreatedAt: number = Date.parse(issue_created_at)
-        core.info(`Issue is created at ${issue_created_at}.`)
-        if (Number.isNaN(issueCreatedAt)) {
-          throw Error(
-            `cannot deduce \`issueCreatedAt\` from ${issue_created_at}`
-          )
-        } else if (issueCreatedAt < notBefore) {
+        const createdAt: number = Date.parse(created_at)
+        core.info(`Issue is created at ${created_at}.`)
+        if (Number.isNaN(createdAt)) {
+          throw Error(`cannot deduce \`createdAt\` from ${created_at}`)
+        } else if (createdAt < notBefore) {
           core.notice(
             'Issue is before `notBefore` configuration parameter. Exiting...'
           )
@@ -84,9 +85,9 @@ async function run(): Promise<void> {
 
       let issueContent = ''
       if (includeTitle === 1) {
-        issueContent += `${issue_title}\n\n`
+        issueContent += `${title}\n\n`
       }
-      issueContent += issue_body
+      issueContent += body
 
       core.info(`Content of issue #${issue_number}:\n${issueContent}`)
 
@@ -94,7 +95,7 @@ async function run(): Promise<void> {
       let [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
         labelParams,
         issueContent,
-        issue_author_association,
+        author_association,
         event_name
       )
 
@@ -102,7 +103,7 @@ async function run(): Promise<void> {
       const addCommentItems: string[] = itemAnalyze(
         commentParams,
         issueContent,
-        issue_author_association,
+        author_association,
         event_name
       )[0]
 
@@ -132,9 +133,9 @@ async function run(): Promise<void> {
       }
 
       if (addCommentItems.length > 0) {
-        for (const body of addCommentItems) {
-          core.info(`Comment ${body} to issue #${issue_number}`)
-          addComment(client, issue_number, body)
+        for (const itemBody of addCommentItems) {
+          core.info(`Comment ${itemBody} to issue #${issue_number}`)
+          addComment(client, issue_number, itemBody)
         }
       }
     }
@@ -149,7 +150,7 @@ async function run(): Promise<void> {
 function itemAnalyze(
   itemMap: item_t[],
   issueContent: string,
-  issue_author_association: string,
+  author_association: string,
   event_name: string
 ): [string[], string[]] {
   const addItems: string[] = []
@@ -160,13 +161,14 @@ function itemAnalyze(
     const item: string = itemParams.get('content')
     const itemName: string = itemParams.get('name')
     const globs: string[] = itemParams.get('regexes')
-    const author_association: string[] = itemParams.get('author_association')
+    const allowedAuthorAssociation: string[] =
+      itemParams.get('author_association')
     const mode: item_t = itemParams.get('mode')
     const avoidItems: string[] = itemParams.get('disabled-if')
     if (checkEvent(event_name, mode, undefined)) {
       if (
         avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
-        checkAuthorAssociation(issue_author_association, author_association) &&
+        checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
         checkRegexes(issueContent, globs)
       ) {
         if (checkEvent(event_name, mode, 'add')) {
@@ -188,20 +190,29 @@ function getEventDetails(issue: any, repr: string): item_t {
   const eventDetails: item_t = new Map()
   try {
     eventDetails.set('issue_number', issue.number ? issue.number : NaN)
-    eventDetails.set('issue_title', issue.title ? issue.title : '')
-    eventDetails.set('issue_body', issue.body ? issue.body : '')
+    eventDetails.set('title', issue.title ? issue.title : '')
+    eventDetails.set('body', issue.body ? issue.body : '')
     eventDetails.set(
-      'issue_author_association',
+      'author_association',
       issue.author_association ? issue.author_association : ''
     )
-    eventDetails.set(
-      'issue_created_at',
-      issue.created_at ? issue.created_at : ''
-    )
+    eventDetails.set('created_at', issue.created_at ? issue.created_at : '')
   } catch (error) {
     throw Error(`could not get ${repr} from context (${error})`)
   }
   return eventDetails
+}
+
+function getIssueNumbersFromMessage(messages: string): number[] {
+  let issue_numbers: number[] = []
+  let matchResult = messages.match(
+    /(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/
+  )
+  while (matchResult && matchResult.index) {
+    issue_numbers.push(parseInt(RegExp.$1))
+    messages = messages.substr(matchResult.index + matchResult[0].length)
+  }
+  return issue_numbers
 }
 
 function getPushEventDetails(payload: any): item_t {
@@ -209,15 +220,12 @@ function getPushEventDetails(payload: any): item_t {
   try {
     let messages = ''
     for (const commit of payload.commits) messages += `${commit.message}\n\n`
-    let issue_number = NaN
-    if (messages.match(/(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/)) {
-      issue_number = parseInt(RegExp.$1)
-    }
-    eventDetails.set('issue_number', issue_number)
-    eventDetails.set('issue_title', '')
-    eventDetails.set('issue_body', messages)
-    eventDetails.set('issue_author_association', '') // TODO
-    eventDetails.set('issue_created_at', '1970-01-01T00:00:00Z') // TODO
+    let issue_numbers = getIssueNumbersFromMessage(messages)
+    eventDetails.set('issue_number', issue_numbers)
+    eventDetails.set('title', '')
+    eventDetails.set('body', messages)
+    eventDetails.set('author_association', '') // TODO
+    eventDetails.set('created_at', '1970-01-01T00:00:00Z') // TODO
   } catch (error) {
     throw Error(`could not get push event details from context (${error})`)
   }
@@ -243,14 +251,21 @@ function getEventInfo(): item_t {
     return eventInfo
   } else if (event_name === 'issue_comment') {
     const eventInfo: item_t = getEventDetails(payload.comment, 'issue comment')
-    const issue = getEventDetails(payload.issue, 'issue')
+    const issue: item_t = getEventDetails(payload.issue, 'issue')
     eventInfo.set('event_name', event_name)
     eventInfo.set('issue_number', issue.get('issue_number'))
-    eventInfo.set('issue_title', issue.get('issue_title'))
+    eventInfo.set('title', issue.get('title'))
     return eventInfo
   } else if (event_name === 'push') {
     const eventInfo: item_t = getPushEventDetails(payload)
     eventInfo.set('event_name', event_name)
+    return eventInfo
+  } else if (event_name === 'commit_comment') {
+    const eventInfo: item_t = getEventDetails(payload.comment, 'commit comment')
+    const issue_numbers: number[] = getIssueNumbersFromMessage(
+      eventInfo.get('body')
+    )
+    eventInfo.set('issue_number', issue_numbers)
     return eventInfo
   } else {
     throw Error(`could not handle event \`${event_name}\``)
@@ -453,7 +468,7 @@ function getArraysFromObject(
   return [labelParams, commentParams]
 }
 
-function checkRegexes(issue_body: string, regexes: string[]): boolean {
+function checkRegexes(body: string, regexes: string[]): boolean {
   let matched
 
   // If several regex entries are provided we require all of them to match for the label to be applied.
@@ -461,9 +476,9 @@ function checkRegexes(issue_body: string, regexes: string[]): boolean {
     const isRegEx = regEx.match(/^\/(.+)\/(.*)$/)
 
     if (isRegEx) {
-      matched = issue_body.match(new RegExp(isRegEx[1], isRegEx[2]))
+      matched = body.match(new RegExp(isRegEx[1], isRegEx[2]))
     } else {
-      matched = issue_body.match(regEx)
+      matched = body.match(regEx)
     }
 
     if (!matched) {
@@ -487,7 +502,7 @@ function checkEvent(
 }
 
 function checkAuthorAssociation(
-  issue_author_association: string,
+  author_association: string,
   regexes: string[]
 ): boolean {
   let matched
@@ -497,11 +512,9 @@ function checkAuthorAssociation(
     const isRegEx = regEx.match(/^\/(.+)\/(.*)$/)
 
     if (isRegEx) {
-      matched = issue_author_association.match(
-        new RegExp(isRegEx[1], isRegEx[2])
-      )
+      matched = author_association.match(new RegExp(isRegEx[1], isRegEx[2]))
     } else {
-      matched = issue_author_association.match(regEx)
+      matched = author_association.match(regEx)
     }
 
     if (!matched) {

@@ -56,35 +56,40 @@ function run() {
             const eventInfo = getEventInfo();
             const event_name = eventInfo.get('event_name');
             const issue_number = eventInfo.get('issue_number');
-            const issue_title = eventInfo.get('issue_title');
-            const issue_body = eventInfo.get('issue_body');
-            const issue_created_at = eventInfo.get('issue_created_at');
-            const issue_author_association = eventInfo.get('issue_author_association');
+            const title = eventInfo.get('title');
+            const body = eventInfo.get('body');
+            const created_at = eventInfo.get('created_at');
+            const author_association = eventInfo.get('author_association');
             if (core.isDebug()) {
                 core.debug(`event_name: ${event_name}`);
                 core.debug(`issue_number: ${issue_number}`);
-                core.debug(`issue_title: ${issue_title}`);
-                core.debug(`issue_body: ${issue_body}`);
-                core.debug(`issue_created_at: ${issue_created_at}`);
-                core.debug(`issue_author_association: ${issue_author_association}`);
+                core.debug(`title: ${title}`);
+                core.debug(`body: ${body}`);
+                core.debug(`created_at: ${created_at}`);
+                core.debug(`author_association: ${author_association}`);
             }
             // A client to load data from GitHub
             const client = github.getOctokit(token);
-            if (event_name === 'push') {
-                if (issue_number) {
-                    core.notice(`This push fixed issue #${issue_number}.`);
-                    addLabels(client, issue_number, ['fixed']);
+            if (event_name === 'push' || event_name === 'commit_comment') {
+                if (issue_number && Array.isArray(issue_number)) {
+                    for (const a_issue_number of issue_number) {
+                        core.notice(`This push fixed issue #${a_issue_number}.`);
+                        addLabels(client, a_issue_number, ['fixed']);
+                    }
                 }
             }
             else {
+                if (Array.isArray(issue_number)) {
+                    throw Error(`unknown error`);
+                }
                 // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
                 if (notBefore) {
-                    const issueCreatedAt = Date.parse(issue_created_at);
-                    core.info(`Issue is created at ${issue_created_at}.`);
-                    if (Number.isNaN(issueCreatedAt)) {
-                        throw Error(`cannot deduce \`issueCreatedAt\` from ${issue_created_at}`);
+                    const createdAt = Date.parse(created_at);
+                    core.info(`Issue is created at ${created_at}.`);
+                    if (Number.isNaN(createdAt)) {
+                        throw Error(`cannot deduce \`createdAt\` from ${created_at}`);
                     }
-                    else if (issueCreatedAt < notBefore) {
+                    else if (createdAt < notBefore) {
                         core.notice('Issue is before `notBefore` configuration parameter. Exiting...');
                         return;
                     }
@@ -100,14 +105,14 @@ function run() {
                 const issueLabels = yield labelsPromise;
                 let issueContent = '';
                 if (includeTitle === 1) {
-                    issueContent += `${issue_title}\n\n`;
+                    issueContent += `${title}\n\n`;
                 }
-                issueContent += issue_body;
+                issueContent += body;
                 core.info(`Content of issue #${issue_number}:\n${issueContent}`);
                 // labels to be added & removed
-                let [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent, issue_author_association, event_name);
+                let [addLabelItems, removeLabelItems] = itemAnalyze(labelParams, issueContent, author_association, event_name);
                 // comments to be added
-                const addCommentItems = itemAnalyze(commentParams, issueContent, issue_author_association, event_name)[0];
+                const addCommentItems = itemAnalyze(commentParams, issueContent, author_association, event_name)[0];
                 if (core.isDebug()) {
                     core.debug(`labels have been added: [${Array.from(issueLabels)}]`);
                     core.debug(`labels to be added: [${addLabelItems.toString()}]`);
@@ -129,9 +134,9 @@ function run() {
                     }
                 }
                 if (addCommentItems.length > 0) {
-                    for (const body of addCommentItems) {
-                        core.info(`Comment ${body} to issue #${issue_number}`);
-                        addComment(client, issue_number, body);
+                    for (const itemBody of addCommentItems) {
+                        core.info(`Comment ${itemBody} to issue #${issue_number}`);
+                        addComment(client, issue_number, itemBody);
                     }
                 }
             }
@@ -144,7 +149,7 @@ function run() {
         }
     });
 }
-function itemAnalyze(itemMap, issueContent, issue_author_association, event_name) {
+function itemAnalyze(itemMap, issueContent, author_association, event_name) {
     const addItems = [];
     const addItemNames = new Set();
     const removeItems = [];
@@ -152,12 +157,12 @@ function itemAnalyze(itemMap, issueContent, issue_author_association, event_name
         const item = itemParams.get('content');
         const itemName = itemParams.get('name');
         const globs = itemParams.get('regexes');
-        const author_association = itemParams.get('author_association');
+        const allowedAuthorAssociation = itemParams.get('author_association');
         const mode = itemParams.get('mode');
         const avoidItems = itemParams.get('disabled-if');
         if (checkEvent(event_name, mode, undefined)) {
             if (avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
-                checkAuthorAssociation(issue_author_association, author_association) &&
+                checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
                 checkRegexes(issueContent, globs)) {
                 if (checkEvent(event_name, mode, 'add')) {
                     addItems.push(item);
@@ -179,15 +184,24 @@ function getEventDetails(issue, repr) {
     const eventDetails = new Map();
     try {
         eventDetails.set('issue_number', issue.number ? issue.number : NaN);
-        eventDetails.set('issue_title', issue.title ? issue.title : '');
-        eventDetails.set('issue_body', issue.body ? issue.body : '');
-        eventDetails.set('issue_author_association', issue.author_association ? issue.author_association : '');
-        eventDetails.set('issue_created_at', issue.created_at ? issue.created_at : '');
+        eventDetails.set('title', issue.title ? issue.title : '');
+        eventDetails.set('body', issue.body ? issue.body : '');
+        eventDetails.set('author_association', issue.author_association ? issue.author_association : '');
+        eventDetails.set('created_at', issue.created_at ? issue.created_at : '');
     }
     catch (error) {
         throw Error(`could not get ${repr} from context (${error})`);
     }
     return eventDetails;
+}
+function getIssueNumbersFromMessage(messages) {
+    let issue_numbers = [];
+    let matchResult = messages.match(/(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/);
+    while (matchResult && matchResult.index) {
+        issue_numbers.push(parseInt(RegExp.$1));
+        messages = messages.substr(matchResult.index + matchResult[0].length);
+    }
+    return issue_numbers;
 }
 function getPushEventDetails(payload) {
     const eventDetails = new Map();
@@ -195,15 +209,12 @@ function getPushEventDetails(payload) {
         let messages = '';
         for (const commit of payload.commits)
             messages += `${commit.message}\n\n`;
-        let issue_number = NaN;
-        if (messages.match(/(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/)) {
-            issue_number = parseInt(RegExp.$1);
-        }
-        eventDetails.set('issue_number', issue_number);
-        eventDetails.set('issue_title', '');
-        eventDetails.set('issue_body', messages);
-        eventDetails.set('issue_author_association', ''); // TODO
-        eventDetails.set('issue_created_at', '1970-01-01T00:00:00Z'); // TODO
+        let issue_numbers = getIssueNumbersFromMessage(messages);
+        eventDetails.set('issue_number', issue_numbers);
+        eventDetails.set('title', '');
+        eventDetails.set('body', messages);
+        eventDetails.set('author_association', ''); // TODO
+        eventDetails.set('created_at', '1970-01-01T00:00:00Z'); // TODO
     }
     catch (error) {
         throw Error(`could not get push event details from context (${error})`);
@@ -229,12 +240,18 @@ function getEventInfo() {
         const issue = getEventDetails(payload.issue, 'issue');
         eventInfo.set('event_name', event_name);
         eventInfo.set('issue_number', issue.get('issue_number'));
-        eventInfo.set('issue_title', issue.get('issue_title'));
+        eventInfo.set('title', issue.get('title'));
         return eventInfo;
     }
     else if (event_name === 'push') {
         const eventInfo = getPushEventDetails(payload);
         eventInfo.set('event_name', event_name);
+        return eventInfo;
+    }
+    else if (event_name === 'commit_comment') {
+        const eventInfo = getEventDetails(payload.comment, 'commit comment');
+        const issue_numbers = getIssueNumbersFromMessage(eventInfo.get('body'));
+        eventInfo.set('issue_number', issue_numbers);
         return eventInfo;
     }
     else {
@@ -417,16 +434,16 @@ function getArraysFromObject(configObject, syncLabels) {
     commentParams = getItemArrayFromObject(commentParamsObject, default_mode);
     return [labelParams, commentParams];
 }
-function checkRegexes(issue_body, regexes) {
+function checkRegexes(body, regexes) {
     let matched;
     // If several regex entries are provided we require all of them to match for the label to be applied.
     for (const regEx of regexes) {
         const isRegEx = regEx.match(/^\/(.+)\/(.*)$/);
         if (isRegEx) {
-            matched = issue_body.match(new RegExp(isRegEx[1], isRegEx[2]));
+            matched = body.match(new RegExp(isRegEx[1], isRegEx[2]));
         }
         else {
-            matched = issue_body.match(regEx);
+            matched = body.match(regEx);
         }
         if (!matched) {
             return false;
@@ -440,16 +457,16 @@ function checkEvent(event_name, mode, type) {
             mode.get(event_name).includes(type) ||
             mode.get(event_name) === type));
 }
-function checkAuthorAssociation(issue_author_association, regexes) {
+function checkAuthorAssociation(author_association, regexes) {
     let matched;
     // If several regex entries are provided we require all of them to match for the label to be applied.
     for (const regEx of regexes) {
         const isRegEx = regEx.match(/^\/(.+)\/(.*)$/);
         if (isRegEx) {
-            matched = issue_author_association.match(new RegExp(isRegEx[1], isRegEx[2]));
+            matched = author_association.match(new RegExp(isRegEx[1], isRegEx[2]));
         }
         else {
-            matched = issue_author_association.match(regEx);
+            matched = author_association.match(regEx);
         }
         if (!matched) {
             return false;
