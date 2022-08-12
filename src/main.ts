@@ -40,7 +40,7 @@ async function run(): Promise<void> {
     // A client to load data from GitHub
     const client = github.getOctokit(token)
 
-    if (event_name === 'push' || event_name === 'commit_comment') {
+    if (event_name === 'push' /* || event_name === 'commit_comment'*/) {
       if (issue_number && Array.isArray(issue_number)) {
         for (const a_issue_number of issue_number) {
           core.notice(`This push fixed issue #${a_issue_number}.`)
@@ -260,13 +260,13 @@ function getEventInfo(): item_t {
     const eventInfo: item_t = getPushEventDetails(payload)
     eventInfo.set('event_name', event_name)
     return eventInfo
-  } else if (event_name === 'commit_comment') {
-    const eventInfo: item_t = getEventDetails(payload.comment, 'commit comment')
-    const issue_numbers: number[] = getIssueNumbersFromMessage(
-      eventInfo.get('body')
-    )
-    eventInfo.set('issue_number', issue_numbers)
-    return eventInfo
+    // } else if (event_name === 'commit_comment') {
+    //   const eventInfo: item_t = getEventDetails(payload.comment, 'commit comment')
+    //   const issue_numbers: number[] = getIssueNumbersFromMessage(
+    //     eventInfo.get('body')
+    //   )
+    //   eventInfo.set('issue_number', issue_numbers)
+    //   return eventInfo
   } else {
     throw Error(`could not handle event \`${event_name}\``)
   }
