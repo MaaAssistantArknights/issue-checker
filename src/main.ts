@@ -205,12 +205,12 @@ function getEventDetails(issue: any, repr: string): item_t {
 
 function getIssueNumbersFromMessage(messages: string): number[] {
   let issue_numbers: number[] = []
-  let matchResult = messages.match(
-    /(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/
-  )
+  const globs = /(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/
+  let matchResult = messages.match(globs)
   while (matchResult && matchResult.index) {
     issue_numbers.push(parseInt(RegExp.$1))
     messages = messages.substr(matchResult.index + matchResult[0].length)
+    matchResult = messages.match(globs)
   }
   return issue_numbers
 }
