@@ -82,7 +82,8 @@ function run() {
                 if (Array.isArray(issue_number)) {
                     throw Error(`unknown error`);
                 }
-                // If the notBefore parameter has been set to a valid timestamp, exit if the current issue was created before notBefore
+                // If the notBefore parameter has been set to a valid timestamp,
+                // exit if the current issue was created before notBefore
                 if (notBefore) {
                     const createdAt = Date.parse(created_at);
                     core.info(`Issue is created at ${created_at}.`);
@@ -165,12 +166,25 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
                 checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
                 checkRegexes(issueContent, globs)) {
                 if (checkEvent(event_name, mode, 'add')) {
-                    addItems.push(item);
+                    if (!addItems.includes(item)) {
+                        // contents can be duplicated, but only added once
+                        if (item !== '') {
+                            addItems.push(item);
+                        }
+                    }
+                    // add itemName regardless of whether the content is duplicated
                     addItemNames.add(itemName);
                 }
             }
-            else if (checkEvent(event_name, mode, 'remove')) {
-                removeItems.push(item);
+            else {
+                if (checkEvent(event_name, mode, 'remove')) {
+                    if (!removeItems.includes(item)) {
+                        // Ibid.
+                        if (item !== '') {
+                            removeItems.push(item);
+                        }
+                    }
+                }
             }
         }
         else {
@@ -178,7 +192,7 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
             core.debug(`Ignore item \`${itemName}\`.`);
         }
     }
-    return [addItems, removeItems];
+    return [addItems.filter(item => removeItems.includes(item)), removeItems];
 }
 function getEventDetails(issue, repr) {
     const eventDetails = new Map();
