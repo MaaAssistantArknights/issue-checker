@@ -168,11 +168,9 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
                 checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
                 checkRegexes(issueContent, globs)) {
                 if (checkEvent(event_name, mode, 'add')) {
-                    if (!addItems.includes(item)) {
-                        // contents can be duplicated, but only added once
-                        if (item !== '') {
-                            addItems.push(item);
-                        }
+                    // contents can be duplicated, but only added once (set content="" to skip add)
+                    if (item !== '' && !addItems.includes(item)) {
+                        addItems.push(item);
                     }
                     // add itemName regardless of whether the content is duplicated
                     addItemNames.add(itemName);
@@ -180,11 +178,9 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
             }
             else {
                 if (checkEvent(event_name, mode, 'remove')) {
-                    if (!removeItems.includes(item)) {
-                        // Ibid.
-                        if (item !== '') {
-                            removeItems.push(item);
-                        }
+                    // Ibid.
+                    if (item !== '' && !removeItems.includes(item)) {
+                        removeItems.push(item);
                     }
                 }
             }
