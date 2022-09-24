@@ -54,6 +54,8 @@ labels:                # optional, choices [labels, comments]
     string[] | string
   author_association:  # optional, required if ${regexes} undefined
     string
+  remove-if:           # optional
+    string[] | string
   skip-if:             # optional
     string[] | string
   mode:                # optional
