@@ -373,7 +373,12 @@ function getItemParamsFromItem(item, default_mode) {
 function getModeFromObject(configObject) {
     const modeMap = new Map();
     for (const key in configObject) {
-        modeMap.set(key, configObject[key]);
+        if (configObject[key] === null) {
+            modeMap.set(key, '__all__');
+        }
+        else {
+            modeMap.set(key, configObject[key]);
+        }
     }
     return modeMap;
 }
@@ -447,11 +452,18 @@ function checkRegexes(body, regexes) {
     }
     return true;
 }
-function checkEvent(event_name, mode, type) {
-    return (mode.has(event_name) &&
+function checkEvent(event_name, mode, type // "add", "remove", undefined
+) {
+    return ((mode.has(event_name) &&
         (type === undefined ||
             mode.get(event_name).includes(type) ||
-            mode.get(event_name) === type));
+            mode.get(event_name) === type ||
+            mode.get(event_name) === '__all__')) ||
+        (type !== undefined &&
+            mode.has(type) &&
+            (mode.get(type).includes(event_name) ||
+                mode.get(type) === event_name ||
+                mode.get(type) === '__all__')));
 }
 function checkAuthorAssociation(author_association, regexes) {
     let matched;
