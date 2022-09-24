@@ -19,11 +19,11 @@ labels:
   regexes:
   - '[Bb]ug'
 - name: enhancement
-  # Add `enhancement` label if issue match all of the regexes, and the label `bug` not been added to the issue; Remove if not
+  # Add `enhancement` label if issue match all of the regexes; Remove if not; Skip if the label `bug` have been added;
   regexes:
   - '[Ee]nhancement'
   - '[Ff]eature [Rr]equest'
-  disabled-if:
+  skip-if:
   - label-1
 - name: label-3
   # Add `Collaborator` label if the issue author is a COLLABORATOR.
@@ -54,7 +54,9 @@ labels:                # optional, choices [labels, comments]
     string[] | string
   author_association:  # optional, required if ${regexes} undefined
     string
-  disabled-if:         # optional
+  remove-if:           # optional
+    string[] | string
+  skip-if:             # optional
     string[] | string
   mode:                # optional
     pull_request:      # optional, choices [pull_request, pull_request_target, issues, issue_comment]

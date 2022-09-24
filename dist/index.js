@@ -160,39 +160,38 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
         const globs = itemParams.get('regexes');
         const allowedAuthorAssociation = itemParams.get('author_association');
         const mode = itemParams.get('mode');
-        const avoidItems = itemParams.get('disabled-if');
-        if (checkEvent(event_name, mode, undefined)) {
-            if (avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
+        const skipIf = itemParams.get('skip-if');
+        const removeIf = itemParams.get('remove-if');
+        const needAdd = checkEvent(event_name, mode, 'add');
+        const needRemove = checkEvent(event_name, mode, 'remove');
+        if ((needAdd || needRemove) &&
+            skipIf.filter(x => addItemNames.has(x)).length === 0) {
+            if (removeIf.filter(x => addItemNames.has(x)).length === 0 &&
                 checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
                 checkRegexes(issueContent, globs)) {
-                if (checkEvent(event_name, mode, 'add')) {
-                    if (!addItems.includes(item)) {
-                        // contents can be duplicated, but only added once
-                        if (item !== '') {
-                            addItems.push(item);
-                        }
+                if (needAdd) {
+                    // contents can be duplicated, but only added once (set content="" to skip add)
+                    if (item !== '' && !addItems.includes(item)) {
+                        addItems.push(item);
                     }
                     // add itemName regardless of whether the content is duplicated
                     addItemNames.add(itemName);
                 }
             }
             else {
-                if (checkEvent(event_name, mode, 'remove')) {
-                    if (!removeItems.includes(item)) {
-                        // Ibid.
-                        if (item !== '') {
-                            removeItems.push(item);
-                        }
+                if (needRemove) {
+                    // Ibid.
+                    if (item !== '' && !removeItems.includes(item)) {
+                        removeItems.push(item);
                     }
                 }
             }
         }
         else {
-            core.debug(`mode: ${Array.from(mode).toString()}`);
             core.debug(`Ignore item \`${itemName}\`.`);
         }
     }
-    return [addItems.filter(item => removeItems.includes(item)), removeItems];
+    return [addItems.filter(item => !removeItems.includes(item)), removeItems];
 }
 function getEventDetails(issue, repr) {
     const eventDetails = new Map();
@@ -294,84 +293,62 @@ function getLabelCommentArrays(client, configurationPath, syncLabels) {
     });
 }
 function getItemParamsFromItem(item, default_mode) {
+    const isstr = (x) => typeof x === 'string';
+    const isstrarr = (x) => Array.isArray(x);
+    const isnull = (x) => x === null;
+    const pred_any2any = (x) => x;
+    const pred_any2anyarr = (x) => [x];
+    const pred_2emptystr = () => '';
+    const str2str = new Map().set('cond', isstr).set('pred', pred_any2any);
+    const str2strarr = new Map()
+        .set('cond', isstr)
+        .set('pred', pred_any2anyarr);
+    const strarr2strarr = new Map()
+        .set('cond', isstrarr)
+        .set('pred', pred_any2any);
+    const null2str = new Map()
+        .set('cond', isnull)
+        .set('pred', pred_2emptystr);
+    const mode_cond_pred = new Map()
+        .set('cond', () => true)
+        .set('pred', getModeFromObject);
+    const configMap = new Map([
+        ['name', [str2str]],
+        ['content', [str2str, null2str]],
+        ['author_association', [str2strarr, strarr2strarr]],
+        ['regexes', [str2strarr, strarr2strarr]],
+        ['mode', [mode_cond_pred]],
+        ['skip-if', [str2strarr, strarr2strarr]],
+        ['remove-if', [str2strarr, strarr2strarr]]
+    ]);
     const itemParams = new Map();
     for (const key in item) {
-        if (key === 'name') {
-            if (typeof item[key] === 'string') {
-                itemParams.set(key, item[key]);
+        if (configMap.has(key)) {
+            const value = item[key];
+            const cond_preds = configMap.get(key);
+            for (const cond_pred of cond_preds) {
+                const cond = cond_pred.get('cond');
+                const pred = cond_pred.get('pred');
+                if (typeof cond == 'function' &&
+                    typeof pred == 'function' &&
+                    cond(value)) {
+                    itemParams.set(key, pred(value));
+                    break;
+                }
             }
-            else {
-                throw Error(`found unexpected type for item name \`${item[key]}\` (should be string)`);
-            }
-        }
-        else if (key === 'content') {
-            if (typeof item[key] === 'string') {
-                itemParams.set(key, item[key]);
-            }
-            else {
+            if (!itemParams.has(key)) {
                 const itemRepr = itemParams.has('name')
                     ? itemParams.get('name')
                     : 'some item';
-                throw Error(`found unexpected type of field \`content\` in ${itemRepr} (should be string)`);
-            }
-        }
-        else if (key === 'author_association') {
-            if (typeof item[key] === 'string') {
-                itemParams.set(key, [item[key]]);
-            }
-            else if (Array.isArray(item[key])) {
-                itemParams.set(key, item[key]);
-            }
-            else {
-                const itemRepr = itemParams.has('name')
-                    ? itemParams.get('name')
-                    : 'some item';
-                throw Error(`found unexpected type of field \`author_association\` in ${itemRepr} (should be string or array of regex)`);
-            }
-        }
-        else if (key === 'regexes') {
-            if (typeof item[key] === 'string') {
-                itemParams.set(key, [item[key]]);
-            }
-            else if (Array.isArray(item[key])) {
-                itemParams.set(key, item[key]);
-            }
-            else {
-                const itemRepr = itemParams.has('name')
-                    ? itemParams.get('name')
-                    : 'some item';
-                throw Error(`found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`);
-            }
-        }
-        else if (key === 'mode') {
-            itemParams.set(key, getModeFromObject(item[key]));
-        }
-        else if (key === 'disabled-if') {
-            if (typeof item[key] === 'string') {
-                itemParams.set(key, [item[key]]);
-            }
-            else if (Array.isArray(item[key])) {
-                itemParams.set(key, item[key]);
-            }
-            else {
-                const itemRepr = itemParams.has('name')
-                    ? itemParams.get('name')
-                    : 'some item';
-                throw Error(`found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`);
+                throw Error(`found unexpected \`${value}\` (type \`${typeof key}\`) of field \`${key}\` in ${itemRepr}`);
             }
         }
         else {
             throw Error(`found unexpected field \`${key}\``);
         }
     }
-    if (!itemParams.has('name')) {
+    if (!itemParams.has('name') || !itemParams.get('name')) {
         throw Error(`some item's name is missing`);
-    }
-    if (!itemParams.has('regexes') && !itemParams.has('author_association')) {
-        const itemRepr = itemParams.has('name')
-            ? itemParams.get('name')
-            : 'some item';
-        throw Error(`${itemRepr}'s \`regexes\` or \`author_association\` are missing`);
     }
     const itemName = itemParams.get('name');
     if (!itemParams.has('content')) {
@@ -383,8 +360,11 @@ function getItemParamsFromItem(item, default_mode) {
     if (!itemParams.has('author_association')) {
         itemParams.set('author_association', []);
     }
-    if (!itemParams.has('disabled-if')) {
-        itemParams.set('disabled-if', []);
+    if (!itemParams.has('skip-if')) {
+        itemParams.set('skip-if', []);
+    }
+    if (!itemParams.has('remove-if')) {
+        itemParams.set('remove-if', []);
     }
     if (!itemParams.has('mode')) {
         itemParams.set('mode', default_mode);
@@ -393,8 +373,20 @@ function getItemParamsFromItem(item, default_mode) {
 }
 function getModeFromObject(configObject) {
     const modeMap = new Map();
-    for (const key in configObject) {
-        modeMap.set(key, configObject[key]);
+    if (Array.isArray(configObject)) {
+        for (const value of configObject) {
+            modeMap.set(value, '__all__');
+        }
+    }
+    else {
+        for (const key in configObject) {
+            if (configObject[key] === null) {
+                modeMap.set(key, '__all__');
+            }
+            else {
+                modeMap.set(key, configObject[key]);
+            }
+        }
     }
     return modeMap;
 }
@@ -468,11 +460,18 @@ function checkRegexes(body, regexes) {
     }
     return true;
 }
-function checkEvent(event_name, mode, type) {
-    return (mode.has(event_name) &&
-        (type === undefined ||
-            mode.get(event_name).includes(type) ||
-            mode.get(event_name) === type));
+function checkEvent(event_name, mode, type // "add", "remove"
+) {
+    const event_rule = mode.get(event_name);
+    const type_rule = mode.get(type);
+    return ((event_rule !== undefined &&
+        (event_rule === '__all__' ||
+            event_rule === type ||
+            (Array.isArray(event_rule) && event_rule.includes(type)))) ||
+        (type_rule !== undefined &&
+            (type_rule === '__all__' ||
+                type_rule === event_name ||
+                (Array.isArray(type_rule) && type_rule.includes(event_name)))));
 }
 function checkAuthorAssociation(author_association, regexes) {
     let matched;

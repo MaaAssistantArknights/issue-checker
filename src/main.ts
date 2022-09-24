@@ -2,7 +2,7 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import * as yaml from 'js-yaml'
 
-// {name, content, regexes, author_association, disabled-if, mode}
+// {name, content, regexes, author_association, skip-if, remove-if, mode}
 type item_t = Map<string, any>
 
 async function run(): Promise<void> {
@@ -165,39 +165,40 @@ function itemAnalyze(
     const allowedAuthorAssociation: string[] =
       itemParams.get('author_association')
     const mode: item_t = itemParams.get('mode')
-    const avoidItems: string[] = itemParams.get('disabled-if')
-    if (checkEvent(event_name, mode, undefined)) {
+    const skipIf: string[] = itemParams.get('skip-if')
+    const removeIf: string[] = itemParams.get('remove-if')
+    const needAdd: Boolean = checkEvent(event_name, mode, 'add')
+    const needRemove: Boolean = checkEvent(event_name, mode, 'remove')
+    if (
+      (needAdd || needRemove) &&
+      skipIf.filter(x => addItemNames.has(x)).length === 0
+    ) {
       if (
-        avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
+        removeIf.filter(x => addItemNames.has(x)).length === 0 &&
         checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
         checkRegexes(issueContent, globs)
       ) {
-        if (checkEvent(event_name, mode, 'add')) {
-          if (!addItems.includes(item)) {
-            // contents can be duplicated, but only added once
-            if (item !== '') {
-              addItems.push(item)
-            }
+        if (needAdd) {
+          // contents can be duplicated, but only added once (set content="" to skip add)
+          if (item !== '' && !addItems.includes(item)) {
+            addItems.push(item)
           }
           // add itemName regardless of whether the content is duplicated
           addItemNames.add(itemName)
         }
       } else {
-        if (checkEvent(event_name, mode, 'remove')) {
-          if (!removeItems.includes(item)) {
-            // Ibid.
-            if (item !== '') {
-              removeItems.push(item)
-            }
+        if (needRemove) {
+          // Ibid.
+          if (item !== '' && !removeItems.includes(item)) {
+            removeItems.push(item)
           }
         }
       }
     } else {
-      core.debug(`mode: ${Array.from(mode).toString()}`)
       core.debug(`Ignore item \`${itemName}\`.`)
     }
   }
-  return [addItems.filter(item => removeItems.includes(item)), removeItems]
+  return [addItems.filter(item => !removeItems.includes(item)), removeItems]
 }
 
 function getEventDetails(issue: any, repr: string): item_t {
@@ -314,66 +315,59 @@ async function getLabelCommentArrays(
 }
 
 function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
+  const isstr = (x: any): Boolean => typeof x === 'string'
+  const isstrarr = (x: any): Boolean => Array.isArray(x)
+  const isnull = (x: any): Boolean => x === null
+  const pred_any2any = (x: any): any => x
+  const pred_any2anyarr = (x: any): any[] => [x]
+  const pred_2emptystr = (): string => ''
+
+  const str2str: item_t = new Map().set('cond', isstr).set('pred', pred_any2any)
+  const str2strarr: item_t = new Map()
+    .set('cond', isstr)
+    .set('pred', pred_any2anyarr)
+  const strarr2strarr: item_t = new Map()
+    .set('cond', isstrarr)
+    .set('pred', pred_any2any)
+  const null2str: item_t = new Map()
+    .set('cond', isnull)
+    .set('pred', pred_2emptystr)
+  const mode_cond_pred: item_t = new Map()
+    .set('cond', (): Boolean => true)
+    .set('pred', getModeFromObject)
+
+  const configMap: item_t = new Map([
+    ['name', [str2str]],
+    ['content', [str2str, null2str]],
+    ['author_association', [str2strarr, strarr2strarr]],
+    ['regexes', [str2strarr, strarr2strarr]],
+    ['mode', [mode_cond_pred]],
+    ['skip-if', [str2strarr, strarr2strarr]],
+    ['remove-if', [str2strarr, strarr2strarr]]
+  ])
   const itemParams: item_t = new Map()
   for (const key in item) {
-    if (key === 'name') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, item[key])
-      } else {
-        throw Error(
-          `found unexpected type for item name \`${item[key]}\` (should be string)`
-        )
+    if (configMap.has(key)) {
+      const value = item[key]
+      const cond_preds: item_t[] = configMap.get(key)
+      for (const cond_pred of cond_preds) {
+        const cond = cond_pred.get('cond')
+        const pred = cond_pred.get('pred')
+        if (
+          typeof cond == 'function' &&
+          typeof pred == 'function' &&
+          cond(value)
+        ) {
+          itemParams.set(key, pred(value))
+          break
+        }
       }
-    } else if (key === 'content') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, item[key])
-      } else {
+      if (!itemParams.has(key)) {
         const itemRepr: string = itemParams.has('name')
           ? itemParams.get('name')
           : 'some item'
         throw Error(
-          `found unexpected type of field \`content\` in ${itemRepr} (should be string)`
-        )
-      }
-    } else if (key === 'author_association') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, [item[key]])
-      } else if (Array.isArray(item[key])) {
-        itemParams.set(key, item[key])
-      } else {
-        const itemRepr: string = itemParams.has('name')
-          ? itemParams.get('name')
-          : 'some item'
-        throw Error(
-          `found unexpected type of field \`author_association\` in ${itemRepr} (should be string or array of regex)`
-        )
-      }
-    } else if (key === 'regexes') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, [item[key]])
-      } else if (Array.isArray(item[key])) {
-        itemParams.set(key, item[key])
-      } else {
-        const itemRepr: string = itemParams.has('name')
-          ? itemParams.get('name')
-          : 'some item'
-        throw Error(
-          `found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`
-        )
-      }
-    } else if (key === 'mode') {
-      itemParams.set(key, getModeFromObject(item[key]))
-    } else if (key === 'disabled-if') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, [item[key]])
-      } else if (Array.isArray(item[key])) {
-        itemParams.set(key, item[key])
-      } else {
-        const itemRepr: string = itemParams.has('name')
-          ? itemParams.get('name')
-          : 'some item'
-        throw Error(
-          `found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`
+          `found unexpected \`${value}\` (type \`${typeof key}\`) of field \`${key}\` in ${itemRepr}`
         )
       }
     } else {
@@ -381,16 +375,8 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
     }
   }
 
-  if (!itemParams.has('name')) {
+  if (!itemParams.has('name') || !itemParams.get('name')) {
     throw Error(`some item's name is missing`)
-  }
-  if (!itemParams.has('regexes') && !itemParams.has('author_association')) {
-    const itemRepr: string = itemParams.has('name')
-      ? itemParams.get('name')
-      : 'some item'
-    throw Error(
-      `${itemRepr}'s \`regexes\` or \`author_association\` are missing`
-    )
   }
 
   const itemName: string = itemParams.get('name')
@@ -403,8 +389,11 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
   if (!itemParams.has('author_association')) {
     itemParams.set('author_association', [])
   }
-  if (!itemParams.has('disabled-if')) {
-    itemParams.set('disabled-if', [])
+  if (!itemParams.has('skip-if')) {
+    itemParams.set('skip-if', [])
+  }
+  if (!itemParams.has('remove-if')) {
+    itemParams.set('remove-if', [])
   }
   if (!itemParams.has('mode')) {
     itemParams.set('mode', default_mode)
@@ -414,8 +403,18 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
 
 function getModeFromObject(configObject: any): item_t {
   const modeMap: item_t = new Map()
-  for (const key in configObject) {
-    modeMap.set(key, configObject[key])
+  if (Array.isArray(configObject)) {
+    for (const value of configObject) {
+      modeMap.set(value, '__all__')
+    }
+  } else {
+    for (const key in configObject) {
+      if (configObject[key] === null) {
+        modeMap.set(key, '__all__')
+      } else {
+        modeMap.set(key, configObject[key])
+      }
+    }
   }
   return modeMap
 }
@@ -482,7 +481,7 @@ function getArraysFromObject(
   return [labelParams, commentParams]
 }
 
-function checkRegexes(body: string, regexes: string[]): boolean {
+function checkRegexes(body: string, regexes: string[]): Boolean {
   let matched
 
   // If several regex entries are provided we require all of them to match for the label to be applied.
@@ -505,20 +504,26 @@ function checkRegexes(body: string, regexes: string[]): boolean {
 function checkEvent(
   event_name: string,
   mode: item_t,
-  type: string | undefined
-): boolean {
+  type: string // "add", "remove"
+): Boolean {
+  const event_rule: string[] | string | undefined = mode.get(event_name)
+  const type_rule: string[] | string | undefined = mode.get(type)
   return (
-    mode.has(event_name) &&
-    (type === undefined ||
-      mode.get(event_name).includes(type) ||
-      mode.get(event_name) === type)
+    (event_rule !== undefined &&
+      (event_rule === '__all__' ||
+        event_rule === type ||
+        (Array.isArray(event_rule) && event_rule.includes(type)))) ||
+    (type_rule !== undefined &&
+      (type_rule === '__all__' ||
+        type_rule === event_name ||
+        (Array.isArray(type_rule) && type_rule.includes(event_name))))
   )
 }
 
 function checkAuthorAssociation(
   author_association: string,
   regexes: string[]
-): boolean {
+): Boolean {
   let matched
 
   // If several regex entries are provided we require all of them to match for the label to be applied.
