@@ -2,7 +2,7 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import * as yaml from 'js-yaml'
 
-// {name, content, regexes, author_association, disabled-if, mode}
+// {name, content, regexes, author_association, skip-if, remove-if, mode}
 type item_t = Map<string, any>
 
 async function run(): Promise<void> {
@@ -165,10 +165,14 @@ function itemAnalyze(
     const allowedAuthorAssociation: string[] =
       itemParams.get('author_association')
     const mode: item_t = itemParams.get('mode')
-    const avoidItems: string[] = itemParams.get('disabled-if')
-    if (checkEvent(event_name, mode, undefined)) {
+    const skipIf: string[] = itemParams.get('skip-if')
+    const removeIf: string[] = itemParams.get('remove-if')
+    if (
+      checkEvent(event_name, mode, undefined) &&
+      skipIf.filter(x => addItemNames.has(x)).length === 0
+    ) {
       if (
-        avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
+        removeIf.filter(x => addItemNames.has(x)).length === 0 &&
         checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
         checkRegexes(issueContent, globs)
       ) {
@@ -345,7 +349,7 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
           ? itemParams.get('name')
           : 'some item'
         throw Error(
-          `found unexpected type of field \`author_association\` in ${itemRepr} (should be string or array of regex)`
+          `found unexpected type of field \`author_association\` in ${itemRepr} (should be string or string[])`
         )
       }
     } else if (key === 'regexes') {
@@ -358,12 +362,12 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
           ? itemParams.get('name')
           : 'some item'
         throw Error(
-          `found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`
+          `found unexpected type of field \`regexes\` in ${itemRepr} (should be string or string[])`
         )
       }
     } else if (key === 'mode') {
       itemParams.set(key, getModeFromObject(item[key]))
-    } else if (key === 'disabled-if') {
+    } else if (key === 'skip-if') {
       if (typeof item[key] === 'string') {
         itemParams.set(key, [item[key]])
       } else if (Array.isArray(item[key])) {
@@ -373,7 +377,20 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
           ? itemParams.get('name')
           : 'some item'
         throw Error(
-          `found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`
+          `found unexpected type of field \`skip-if\` in ${itemRepr} (should be string or string[])`
+        )
+      }
+    } else if (key === 'remove-if') {
+      if (typeof item[key] === 'string') {
+        itemParams.set(key, [item[key]])
+      } else if (Array.isArray(item[key])) {
+        itemParams.set(key, item[key])
+      } else {
+        const itemRepr: string = itemParams.has('name')
+          ? itemParams.get('name')
+          : 'some item'
+        throw Error(
+          `found unexpected type of field \`remove-if\` in ${itemRepr} (should be string or string[])`
         )
       }
     } else {
@@ -403,8 +420,11 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
   if (!itemParams.has('author_association')) {
     itemParams.set('author_association', [])
   }
-  if (!itemParams.has('disabled-if')) {
-    itemParams.set('disabled-if', [])
+  if (!itemParams.has('skip-if')) {
+    itemParams.set('skip-if', [])
+  }
+  if (!itemParams.has('remove-if')) {
+    itemParams.set('remove-if', [])
   }
   if (!itemParams.has('mode')) {
     itemParams.set('mode', default_mode)

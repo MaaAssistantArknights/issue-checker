@@ -160,9 +160,11 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
         const globs = itemParams.get('regexes');
         const allowedAuthorAssociation = itemParams.get('author_association');
         const mode = itemParams.get('mode');
-        const avoidItems = itemParams.get('disabled-if');
-        if (checkEvent(event_name, mode, undefined)) {
-            if (avoidItems.filter(x => addItemNames.has(x)).length === 0 &&
+        const skipIf = itemParams.get('skip-if');
+        const removeIf = itemParams.get('remove-if');
+        if (checkEvent(event_name, mode, undefined) &&
+            skipIf.filter(x => addItemNames.has(x)).length === 0) {
+            if (removeIf.filter(x => addItemNames.has(x)).length === 0 &&
                 checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
                 checkRegexes(issueContent, globs)) {
                 if (checkEvent(event_name, mode, 'add')) {
@@ -326,7 +328,7 @@ function getItemParamsFromItem(item, default_mode) {
                 const itemRepr = itemParams.has('name')
                     ? itemParams.get('name')
                     : 'some item';
-                throw Error(`found unexpected type of field \`author_association\` in ${itemRepr} (should be string or array of regex)`);
+                throw Error(`found unexpected type of field \`author_association\` in ${itemRepr} (should be string or string[])`);
             }
         }
         else if (key === 'regexes') {
@@ -340,13 +342,13 @@ function getItemParamsFromItem(item, default_mode) {
                 const itemRepr = itemParams.has('name')
                     ? itemParams.get('name')
                     : 'some item';
-                throw Error(`found unexpected type of field \`regexes\` in ${itemRepr} (should be string or array of regex)`);
+                throw Error(`found unexpected type of field \`regexes\` in ${itemRepr} (should be string or string[])`);
             }
         }
         else if (key === 'mode') {
             itemParams.set(key, getModeFromObject(item[key]));
         }
-        else if (key === 'disabled-if') {
+        else if (key === 'skip-if') {
             if (typeof item[key] === 'string') {
                 itemParams.set(key, [item[key]]);
             }
@@ -357,7 +359,21 @@ function getItemParamsFromItem(item, default_mode) {
                 const itemRepr = itemParams.has('name')
                     ? itemParams.get('name')
                     : 'some item';
-                throw Error(`found unexpected type of field \`disabled-if\` in ${itemRepr} (should be string or array of string)`);
+                throw Error(`found unexpected type of field \`skip-if\` in ${itemRepr} (should be string or string[])`);
+            }
+        }
+        else if (key === 'remove-if') {
+            if (typeof item[key] === 'string') {
+                itemParams.set(key, [item[key]]);
+            }
+            else if (Array.isArray(item[key])) {
+                itemParams.set(key, item[key]);
+            }
+            else {
+                const itemRepr = itemParams.has('name')
+                    ? itemParams.get('name')
+                    : 'some item';
+                throw Error(`found unexpected type of field \`remove-if\` in ${itemRepr} (should be string or string[])`);
             }
         }
         else {
@@ -383,8 +399,11 @@ function getItemParamsFromItem(item, default_mode) {
     if (!itemParams.has('author_association')) {
         itemParams.set('author_association', []);
     }
-    if (!itemParams.has('disabled-if')) {
-        itemParams.set('disabled-if', []);
+    if (!itemParams.has('skip-if')) {
+        itemParams.set('skip-if', []);
+    }
+    if (!itemParams.has('remove-if')) {
+        itemParams.set('remove-if', []);
     }
     if (!itemParams.has('mode')) {
         itemParams.set('mode', default_mode);
