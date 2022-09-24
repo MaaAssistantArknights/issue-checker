@@ -314,79 +314,54 @@ async function getLabelCommentArrays(
 }
 
 function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
+  const isstr = (x: any): Boolean => typeof x === 'string'
+  const isstrarr = (x: any): Boolean => Array.isArray(x)
+  const pred_any2any = (x: any): any => x
+  const pred_any2anyarr = (x: any): any[] => [x]
+
+  const str2str: item_t = new Map().set('cond', isstr).set('pred', pred_any2any)
+  const str2strarr: item_t = new Map()
+    .set('cond', isstr)
+    .set('pred', pred_any2anyarr)
+  const strarr2strarr: item_t = new Map()
+    .set('cond', isstrarr)
+    .set('pred', pred_any2any)
+  const mode_cond_pred: item_t = new Map()
+    .set('cond', (): Boolean => true)
+    .set('pred', getModeFromObject)
+
+  const configMap: item_t = new Map([
+    ['name', [str2str]],
+    ['content', [str2str]],
+    ['author_association', [str2strarr, strarr2strarr]],
+    ['regexes', [str2strarr, strarr2strarr]],
+    ['mode', [mode_cond_pred]],
+    ['skip-if', [str2strarr, strarr2strarr]],
+    ['remove-if', [str2strarr, strarr2strarr]]
+  ])
   const itemParams: item_t = new Map()
   for (const key in item) {
-    if (key === 'name') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, item[key])
-      } else {
-        throw Error(
-          `found unexpected type for item name \`${item[key]}\` (should be string)`
-        )
+    if (configMap.has(key)) {
+      const value = item[key]
+      const cond_preds: item_t[] = configMap.get(key)
+      for (const cond_pred of cond_preds) {
+        const cond = cond_pred.get('cond')
+        const pred = cond_pred.get('pred')
+        if (
+          typeof cond == 'function' &&
+          typeof pred == 'function' &&
+          cond(value)
+        ) {
+          itemParams.set(key, pred(value))
+          break
+        }
       }
-    } else if (key === 'content') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, item[key])
-      } else {
+      if (!itemParams.has(key)) {
         const itemRepr: string = itemParams.has('name')
           ? itemParams.get('name')
           : 'some item'
         throw Error(
-          `found unexpected type of field \`content\` in ${itemRepr} (should be string)`
-        )
-      }
-    } else if (key === 'author_association') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, [item[key]])
-      } else if (Array.isArray(item[key])) {
-        itemParams.set(key, item[key])
-      } else {
-        const itemRepr: string = itemParams.has('name')
-          ? itemParams.get('name')
-          : 'some item'
-        throw Error(
-          `found unexpected type of field \`author_association\` in ${itemRepr} (should be string or string[])`
-        )
-      }
-    } else if (key === 'regexes') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, [item[key]])
-      } else if (Array.isArray(item[key])) {
-        itemParams.set(key, item[key])
-      } else {
-        const itemRepr: string = itemParams.has('name')
-          ? itemParams.get('name')
-          : 'some item'
-        throw Error(
-          `found unexpected type of field \`regexes\` in ${itemRepr} (should be string or string[])`
-        )
-      }
-    } else if (key === 'mode') {
-      itemParams.set(key, getModeFromObject(item[key]))
-    } else if (key === 'skip-if') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, [item[key]])
-      } else if (Array.isArray(item[key])) {
-        itemParams.set(key, item[key])
-      } else {
-        const itemRepr: string = itemParams.has('name')
-          ? itemParams.get('name')
-          : 'some item'
-        throw Error(
-          `found unexpected type of field \`skip-if\` in ${itemRepr} (should be string or string[])`
-        )
-      }
-    } else if (key === 'remove-if') {
-      if (typeof item[key] === 'string') {
-        itemParams.set(key, [item[key]])
-      } else if (Array.isArray(item[key])) {
-        itemParams.set(key, item[key])
-      } else {
-        const itemRepr: string = itemParams.has('name')
-          ? itemParams.get('name')
-          : 'some item'
-        throw Error(
-          `found unexpected type of field \`remove-if\` in ${itemRepr} (should be string or string[])`
+          `found unexpected \`${value}\` (type \`${typeof key}\`) of field \`${key}\` in ${itemRepr}`
         )
       }
     } else {
@@ -398,9 +373,7 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
     throw Error(`some item's name is missing`)
   }
   if (!itemParams.has('regexes') && !itemParams.has('author_association')) {
-    const itemRepr: string = itemParams.has('name')
-      ? itemParams.get('name')
-      : 'some item'
+    const itemRepr: string = itemParams.get('name')
     throw Error(
       `${itemRepr}'s \`regexes\` or \`author_association\` are missing`
     )
