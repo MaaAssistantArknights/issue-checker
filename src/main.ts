@@ -193,7 +193,6 @@ function itemAnalyze(
         }
       }
     } else {
-      core.debug(`mode: ${Array.from(mode).toString()}`)
       core.debug(`Ignore item \`${itemName}\`.`)
     }
   }

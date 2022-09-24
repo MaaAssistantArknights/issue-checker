@@ -186,7 +186,6 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
             }
         }
         else {
-            core.debug(`mode: ${Array.from(mode).toString()}`);
             core.debug(`Ignore item \`${itemName}\`.`);
         }
     }
