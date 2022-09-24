@@ -316,8 +316,10 @@ async function getLabelCommentArrays(
 function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
   const isstr = (x: any): Boolean => typeof x === 'string'
   const isstrarr = (x: any): Boolean => Array.isArray(x)
+  const isnull = (x: any): Boolean => x === null
   const pred_any2any = (x: any): any => x
   const pred_any2anyarr = (x: any): any[] => [x]
+  const pred_2emptystr = (): string => ''
 
   const str2str: item_t = new Map().set('cond', isstr).set('pred', pred_any2any)
   const str2strarr: item_t = new Map()
@@ -326,13 +328,16 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
   const strarr2strarr: item_t = new Map()
     .set('cond', isstrarr)
     .set('pred', pred_any2any)
+  const null2str: item_t = new Map()
+    .set('cond', isnull)
+    .set('pred', pred_2emptystr)
   const mode_cond_pred: item_t = new Map()
     .set('cond', (): Boolean => true)
     .set('pred', getModeFromObject)
 
   const configMap: item_t = new Map([
     ['name', [str2str]],
-    ['content', [str2str]],
+    ['content', [str2str, null2str]],
     ['author_association', [str2strarr, strarr2strarr]],
     ['regexes', [str2strarr, strarr2strarr]],
     ['mode', [mode_cond_pred]],
@@ -369,14 +374,8 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
     }
   }
 
-  if (!itemParams.has('name')) {
+  if (!itemParams.has('name') || !itemParams.get('name')) {
     throw Error(`some item's name is missing`)
-  }
-  if (!itemParams.has('regexes') && !itemParams.has('author_association')) {
-    const itemRepr: string = itemParams.get('name')
-    throw Error(
-      `${itemRepr}'s \`regexes\` or \`author_association\` are missing`
-    )
   }
 
   const itemName: string = itemParams.get('name')

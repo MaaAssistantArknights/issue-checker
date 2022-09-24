@@ -294,8 +294,10 @@ function getLabelCommentArrays(client, configurationPath, syncLabels) {
 function getItemParamsFromItem(item, default_mode) {
     const isstr = (x) => typeof x === 'string';
     const isstrarr = (x) => Array.isArray(x);
+    const isnull = (x) => x === null;
     const pred_any2any = (x) => x;
     const pred_any2anyarr = (x) => [x];
+    const pred_2emptystr = () => '';
     const str2str = new Map().set('cond', isstr).set('pred', pred_any2any);
     const str2strarr = new Map()
         .set('cond', isstr)
@@ -303,12 +305,15 @@ function getItemParamsFromItem(item, default_mode) {
     const strarr2strarr = new Map()
         .set('cond', isstrarr)
         .set('pred', pred_any2any);
+    const null2str = new Map()
+        .set('cond', isnull)
+        .set('pred', pred_2emptystr);
     const mode_cond_pred = new Map()
         .set('cond', () => true)
         .set('pred', getModeFromObject);
     const configMap = new Map([
         ['name', [str2str]],
-        ['content', [str2str]],
+        ['content', [str2str, null2str]],
         ['author_association', [str2strarr, strarr2strarr]],
         ['regexes', [str2strarr, strarr2strarr]],
         ['mode', [mode_cond_pred]],
@@ -341,14 +346,8 @@ function getItemParamsFromItem(item, default_mode) {
             throw Error(`found unexpected field \`${key}\``);
         }
     }
-    if (!itemParams.has('name')) {
+    if (!itemParams.has('name') || !itemParams.get('name')) {
         throw Error(`some item's name is missing`);
-    }
-    if (!itemParams.has('regexes') && !itemParams.has('author_association')) {
-        const itemRepr = itemParams.has('name')
-            ? itemParams.get('name')
-            : 'some item';
-        throw Error(`${itemRepr}'s \`regexes\` or \`author_association\` are missing`);
     }
     const itemName = itemParams.get('name');
     if (!itemParams.has('content')) {
