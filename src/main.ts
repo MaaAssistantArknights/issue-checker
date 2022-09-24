@@ -167,8 +167,10 @@ function itemAnalyze(
     const mode: item_t = itemParams.get('mode')
     const skipIf: string[] = itemParams.get('skip-if')
     const removeIf: string[] = itemParams.get('remove-if')
+    const needAdd: Boolean = checkEvent(event_name, mode, 'add')
+    const needRemove: Boolean = checkEvent(event_name, mode, 'remove')
     if (
-      checkEvent(event_name, mode, undefined) &&
+      (needAdd || needRemove) &&
       skipIf.filter(x => addItemNames.has(x)).length === 0
     ) {
       if (
@@ -176,7 +178,7 @@ function itemAnalyze(
         checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
         checkRegexes(issueContent, globs)
       ) {
-        if (checkEvent(event_name, mode, 'add')) {
+        if (needAdd) {
           // contents can be duplicated, but only added once (set content="" to skip add)
           if (item !== '' && !addItems.includes(item)) {
             addItems.push(item)
@@ -185,7 +187,7 @@ function itemAnalyze(
           addItemNames.add(itemName)
         }
       } else {
-        if (checkEvent(event_name, mode, 'remove')) {
+        if (needRemove) {
           // Ibid.
           if (item !== '' && !removeItems.includes(item)) {
             removeItems.push(item)
@@ -401,11 +403,17 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
 
 function getModeFromObject(configObject: any): item_t {
   const modeMap: item_t = new Map()
-  for (const key in configObject) {
-    if (configObject[key] === null) {
-      modeMap.set(key, '__all__')
-    } else {
-      modeMap.set(key, configObject[key])
+  if (Array.isArray(configObject)) {
+    for (const value of configObject) {
+      modeMap.set(value, '__all__')
+    }
+  } else {
+    for (const key in configObject) {
+      if (configObject[key] === null) {
+        modeMap.set(key, '__all__')
+      } else {
+        modeMap.set(key, configObject[key])
+      }
     }
   }
   return modeMap
@@ -473,7 +481,7 @@ function getArraysFromObject(
   return [labelParams, commentParams]
 }
 
-function checkRegexes(body: string, regexes: string[]): boolean {
+function checkRegexes(body: string, regexes: string[]): Boolean {
   let matched
 
   // If several regex entries are provided we require all of them to match for the label to be applied.
@@ -496,26 +504,26 @@ function checkRegexes(body: string, regexes: string[]): boolean {
 function checkEvent(
   event_name: string,
   mode: item_t,
-  type: string | undefined // "add", "remove", undefined
-): boolean {
+  type: string // "add", "remove"
+): Boolean {
+  const event_rule: string[] | string | undefined = mode.get(event_name)
+  const type_rule: string[] | string | undefined = mode.get(type)
   return (
-    (mode.has(event_name) &&
-      (type === undefined ||
-        mode.get(event_name).includes(type) ||
-        mode.get(event_name) === type ||
-        mode.get(event_name) === '__all__')) ||
-    (type !== undefined &&
-      mode.has(type) &&
-      (mode.get(type).includes(event_name) ||
-        mode.get(type) === event_name ||
-        mode.get(type) === '__all__'))
+    (event_rule !== undefined &&
+      (event_rule === '__all__' ||
+        event_rule === type ||
+        (Array.isArray(event_rule) && event_rule.includes(type)))) ||
+    (type_rule !== undefined &&
+      (type_rule === '__all__' ||
+        type_rule === event_name ||
+        (Array.isArray(type_rule) && type_rule.includes(event_name))))
   )
 }
 
 function checkAuthorAssociation(
   author_association: string,
   regexes: string[]
-): boolean {
+): Boolean {
   let matched
 
   // If several regex entries are provided we require all of them to match for the label to be applied.

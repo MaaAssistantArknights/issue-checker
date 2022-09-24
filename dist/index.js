@@ -162,12 +162,14 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
         const mode = itemParams.get('mode');
         const skipIf = itemParams.get('skip-if');
         const removeIf = itemParams.get('remove-if');
-        if (checkEvent(event_name, mode, undefined) &&
+        const needAdd = checkEvent(event_name, mode, 'add');
+        const needRemove = checkEvent(event_name, mode, 'remove');
+        if ((needAdd || needRemove) &&
             skipIf.filter(x => addItemNames.has(x)).length === 0) {
             if (removeIf.filter(x => addItemNames.has(x)).length === 0 &&
                 checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
                 checkRegexes(issueContent, globs)) {
-                if (checkEvent(event_name, mode, 'add')) {
+                if (needAdd) {
                     // contents can be duplicated, but only added once (set content="" to skip add)
                     if (item !== '' && !addItems.includes(item)) {
                         addItems.push(item);
@@ -177,7 +179,7 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
                 }
             }
             else {
-                if (checkEvent(event_name, mode, 'remove')) {
+                if (needRemove) {
                     // Ibid.
                     if (item !== '' && !removeItems.includes(item)) {
                         removeItems.push(item);
@@ -371,12 +373,19 @@ function getItemParamsFromItem(item, default_mode) {
 }
 function getModeFromObject(configObject) {
     const modeMap = new Map();
-    for (const key in configObject) {
-        if (configObject[key] === null) {
-            modeMap.set(key, '__all__');
+    if (Array.isArray(configObject)) {
+        for (const value of configObject) {
+            modeMap.set(value, '__all__');
         }
-        else {
-            modeMap.set(key, configObject[key]);
+    }
+    else {
+        for (const key in configObject) {
+            if (configObject[key] === null) {
+                modeMap.set(key, '__all__');
+            }
+            else {
+                modeMap.set(key, configObject[key]);
+            }
         }
     }
     return modeMap;
@@ -451,18 +460,18 @@ function checkRegexes(body, regexes) {
     }
     return true;
 }
-function checkEvent(event_name, mode, type // "add", "remove", undefined
+function checkEvent(event_name, mode, type // "add", "remove"
 ) {
-    return ((mode.has(event_name) &&
-        (type === undefined ||
-            mode.get(event_name).includes(type) ||
-            mode.get(event_name) === type ||
-            mode.get(event_name) === '__all__')) ||
-        (type !== undefined &&
-            mode.has(type) &&
-            (mode.get(type).includes(event_name) ||
-                mode.get(type) === event_name ||
-                mode.get(type) === '__all__')));
+    const event_rule = mode.get(event_name);
+    const type_rule = mode.get(type);
+    return ((event_rule !== undefined &&
+        (event_rule === '__all__' ||
+            event_rule === type ||
+            (Array.isArray(event_rule) && event_rule.includes(type)))) ||
+        (type_rule !== undefined &&
+            (type_rule === '__all__' ||
+                type_rule === event_name ||
+                (Array.isArray(type_rule) && type_rule.includes(event_name)))));
 }
 function checkAuthorAssociation(author_association, regexes) {
     let matched;
