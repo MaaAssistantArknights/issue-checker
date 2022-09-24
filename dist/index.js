@@ -190,7 +190,7 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
             core.debug(`Ignore item \`${itemName}\`.`);
         }
     }
-    return [addItems.filter(item => removeItems.includes(item)), removeItems];
+    return [addItems.filter(item => !removeItems.includes(item)), removeItems];
 }
 function getEventDetails(issue, repr) {
     const eventDetails = new Map();

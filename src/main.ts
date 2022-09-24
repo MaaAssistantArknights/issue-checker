@@ -197,7 +197,7 @@ function itemAnalyze(
       core.debug(`Ignore item \`${itemName}\`.`)
     }
   }
-  return [addItems.filter(item => removeItems.includes(item)), removeItems]
+  return [addItems.filter(item => !removeItems.includes(item)), removeItems]
 }
 
 function getEventDetails(issue: any, repr: string): item_t {
