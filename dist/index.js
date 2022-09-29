@@ -188,7 +188,10 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
             }
         }
         else {
-            core.debug(`Ignore item \`${itemName}\`.`);
+            if (core.isDebug()) {
+                core.debug(`needAdd = ${needAdd}, needRemove = ${needRemove}, mode = ${JSON.stringify(Object.fromEntries(mode.entries()))}`);
+                core.debug(`Ignore item \`${itemName}\`.`);
+            }
         }
     }
     return [addItems.filter(item => !removeItems.includes(item)), removeItems];
