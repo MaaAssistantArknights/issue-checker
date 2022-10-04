@@ -195,7 +195,14 @@ function itemAnalyze(
         }
       }
     } else {
-      core.debug(`Ignore item \`${itemName}\`.`)
+      if (core.isDebug()) {
+        core.debug(
+          `needAdd = ${needAdd}, needRemove = ${needRemove}, mode = ${JSON.stringify(
+            Object.fromEntries(mode.entries())
+          )}`
+        )
+        core.debug(`Ignore item \`${itemName}\`.`)
+      }
     }
   }
   return [addItems.filter(item => !removeItems.includes(item)), removeItems]
@@ -403,7 +410,9 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
 
 function getModeFromObject(configObject: any): item_t {
   const modeMap: item_t = new Map()
-  if (Array.isArray(configObject)) {
+  if (typeof configObject === 'string') {
+    modeMap.set(configObject, '__all__')
+  } else if (Array.isArray(configObject)) {
     for (const value of configObject) {
       modeMap.set(value, '__all__')
     }

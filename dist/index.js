@@ -188,7 +188,10 @@ function itemAnalyze(itemMap, issueContent, author_association, event_name) {
             }
         }
         else {
-            core.debug(`Ignore item \`${itemName}\`.`);
+            if (core.isDebug()) {
+                core.debug(`needAdd = ${needAdd}, needRemove = ${needRemove}, mode = ${JSON.stringify(Object.fromEntries(mode.entries()))}`);
+                core.debug(`Ignore item \`${itemName}\`.`);
+            }
         }
     }
     return [addItems.filter(item => !removeItems.includes(item)), removeItems];
@@ -373,7 +376,10 @@ function getItemParamsFromItem(item, default_mode) {
 }
 function getModeFromObject(configObject) {
     const modeMap = new Map();
-    if (Array.isArray(configObject)) {
+    if (typeof configObject === 'string') {
+        modeMap.set(configObject, '__all__');
+    }
+    else if (Array.isArray(configObject)) {
         for (const value of configObject) {
             modeMap.set(value, '__all__');
         }
