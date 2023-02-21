@@ -16,13 +16,10 @@ labels:
 - name: label-1
   # Add `bug` label if issue contains the word `Bug` or `bug`; Remove if not
   content: bug
-  regexes:
-  - '[Bb]ug'
+  regexes: '[Bb]ug'
 - name: enhancement
   # Add `enhancement` label if issue match all of the regexes; Remove if not; Skip if the label `bug` have been added;
-  regexes:
-  - '[Ee]nhancement'
-  - '[Ff]eature [Rr]equest'
+  regexes: '[Ee]nhancement|[Ff]eature [Rr]equest'
   skip-if:
   - label-1
 - name: label-3
@@ -86,7 +83,7 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-    - uses: zzyyyl/issue-checker@v1.4
+    - uses: zzyyyl/issue-checker@v1.7
       with:
         repo-token: "${{ secrets.GITHUB_TOKEN }}"
         configuration-path: .github/issue-checker.yml
