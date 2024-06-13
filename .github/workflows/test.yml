@@ -1,26 +1,55 @@
-name: 'build'
-on: # rebuild any PRs and main branch changes
+name: Continuous Integration
+
+on:
   pull_request:
+    branches:
+      - main
+      - dev
+      - feat/*
+      - chore/*
   push:
     branches:
       - main
       - dev
-      - 'releases/*'
+      - feat/*
+      - chore/*
+
+permissions:
+  contents: read
 
 jobs:
-  build: # make sure build/ci work properly
+  build-action:
+    name: Build Action
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
-      - run: |
-          npm ci
-      - run: |
-          npm run all
-  # I don't know how to test.
-  # test: # make sure the action works on a clean machine without building
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
+        id: npm-ci
+        run: npm ci
+
+      - name: Build
+        id: npm-all
+        run: npm run all
+
+  # # I don't know how to test.
+  # test-action:
+  #   name: Test Action
   #   runs-on: ubuntu-latest
+
   #   steps:
-  #     - uses: actions/checkout@v4
-  #     - uses: ./
+  #     - name: Checkout
+  #       id: checkout
+  #       uses: actions/checkout@v4
+
+  #     - name: Test Local Action
+  #       id: test-action
+  #       uses: ./
   #       with:
-  #         milliseconds: 1000
+  #         repo-token: "${{ secrets.GITHUB_TOKEN }}"
+  #         configuration-path: .github/issue-checker.yml
+  #         not-before: 2022-08-05T00:00:00Z
+  #         include-title: 1

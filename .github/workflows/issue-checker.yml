@@ -1,0 +1,31 @@
+# This is an example
+# See https://github.com/MaaAssistantArknights/MaaAssistantArknights/blob/dev/.github/workflows/issue-checker.yml
+
+name: "Issue Checker"
+on:
+  issues:
+    types: [opened, edited]
+  pull_request_target:
+    types: [opened, edited]
+  issue_comment:
+    types: [created, edited]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        id: checkout
+        uses: actions/checkout@v4
+
+      - uses: ./
+        with:
+          repo-token: "${{ secrets.GITHUB_TOKEN }}"
+          configuration-path: .github/issue-checker.yml
+          not-before: 2022-08-05T00:00:00Z
+          include-title: 1
