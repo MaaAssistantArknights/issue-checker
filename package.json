@@ -2,7 +2,7 @@
   "name": "issue-checker",
   "version": "1.7",
   "private": true,
-  "description": "Issue checker",
+  "description": "Labels and comments to issues automatically based on their body",
   "main": "lib/main.js",
   "scripts": {
     "build": "tsc && ncc build --source-map --license licenses.txt",
