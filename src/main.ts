@@ -11,15 +11,15 @@ async function run(): Promise<void> {
     const configPath: string = core.getInput('configuration-path', {
       required: true
     })
-    const token: string = core.getInput('repo-token', {required: true})
+    const token: string = core.getInput('repo-token', { required: true })
     const notBefore: number = Date.parse(
-      core.getInput('not-before', {required: false})
+      core.getInput('not-before', { required: false })
     )
     const includeTitle: number = parseInt(
-      core.getInput('include-title', {required: false})
+      core.getInput('include-title', { required: false })
     )
     const syncLabels: number = parseInt(
-      core.getInput('sync-labels', {required: false})
+      core.getInput('sync-labels', { required: false })
     )
 
     const eventInfo: item_t = getEventInfo()

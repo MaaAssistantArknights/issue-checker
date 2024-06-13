@@ -1,6 +1,11 @@
-name: 'RegEx Issue Checker'
+name: 'Issue Checker'
 description: 'Labels and comments to issues automatically based on their body'
 author: 'zzyyyl'
+
+branding:
+  icon: 'activity'
+  color: 'blue'
+
 inputs:
   repo-token:
     description: 'The GITHUB_TOKEN secret'
@@ -19,9 +24,7 @@ inputs:
     description: 'Remove labels from issue if regex does not match'
     required: false
     default: 1
+
 runs:
-  using: 'node16'
+  using: 'node20'
   main: 'dist/index.js'
-branding:
-  icon: 'activity'
-  color: 'blue'
