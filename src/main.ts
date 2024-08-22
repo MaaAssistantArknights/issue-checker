@@ -1,9 +1,39 @@
 import * as core from '@actions/core'
 import * as github from '@actions/github'
+import { GitHub } from '@actions/github/lib/utils'
 import * as yaml from 'js-yaml'
 
-// {name, content, regexes, author_association, skip-if, remove-if, mode}
-type item_t = Map<string, any>
+interface IRuleItem {
+  [key: string]: unknown
+  name: string
+  content?: string
+  regexes: string[]
+  author_association: string[]
+  mode: IMode
+  skip_if: string[]
+  remove_if: string[]
+}
+
+interface IEventInfo {
+  event_name: string
+  issue_number: number | number[] // number[] for push event
+  title: string
+  body: string
+  created_at: string
+  author_association: string
+}
+
+type ModeEvent =
+  | 'pull_request'
+  | 'pull_request_target'
+  | 'issues'
+  | 'issue_comment'
+  | 'push'
+
+interface IMode {
+  add: ModeEvent[] | true
+  remove: ModeEvent[] | true
+}
 
 async function run(): Promise<void> {
   try {
@@ -22,13 +52,20 @@ async function run(): Promise<void> {
       core.getInput('sync-labels', { required: false })
     )
 
-    const eventInfo: item_t = getEventInfo()
-    const event_name: string = eventInfo.get('event_name')
-    const issue_number: number | number[] = eventInfo.get('issue_number')
-    const title: string = eventInfo.get('title')
-    const body: string = eventInfo.get('body')
-    const created_at: string = eventInfo.get('created_at')
-    const author_association: string = eventInfo.get('author_association')
+    const {
+      event_name: _event_name,
+      issue_number: issue_number,
+      title: title,
+      body: body,
+      created_at: created_at,
+      author_association: author_association
+    } = getEventInfo()
+
+    const event_name = getModeEvent(_event_name)
+    if (event_name === undefined) {
+      throw Error(`could not handle event \`${_event_name}\``)
+    }
+
     if (core.isDebug()) {
       core.debug(`event_name: ${event_name}`)
       core.debug(`issue_number: ${issue_number}`)
@@ -37,14 +74,18 @@ async function run(): Promise<void> {
       core.debug(`created_at: ${created_at}`)
       core.debug(`author_association: ${author_association}`)
     }
+
+    const issueContent = (includeTitle === 1 ? `${title}\n\n` : '') + body
+    core.info(`Content of issue #${issue_number}:\n${issueContent}`)
+
     // A client to load data from GitHub
     const client = github.getOctokit(token)
 
     if (event_name === 'push' /* || event_name === 'commit_comment'*/) {
       if (issue_number && Array.isArray(issue_number)) {
-        for (const a_issue_number of issue_number) {
-          core.notice(`This push fixed issue #${a_issue_number}.`)
-          addLabels(client, a_issue_number, ['fixed'])
+        for (const issue of issue_number) {
+          core.notice(`This push fixed issue #${issue}.`)
+          addLabels(client, issue, ['fixed'])
         }
       }
     } else {
@@ -68,40 +109,25 @@ async function run(): Promise<void> {
         core.debug(`Parameter \`notBefore\` is not set or is set invalid.`)
       }
 
-      // Load our regex rules from the configuration path
-      const itemsPromise: Promise<[item_t[], item_t[]]> = getLabelCommentArrays(
+      const [labelParams, commentParams] = await loadConfigRules(
         client,
         configPath,
         syncLabels
       )
-      // Get the labels have been added to the current issue
-      const labelsPromise: Promise<Set<string>> = getLabels(
-        client,
-        issue_number
-      )
-
-      const [labelParams, commentParams]: [item_t[], item_t[]] =
-        await itemsPromise
-      const issueLabels: Set<string> = await labelsPromise
-
-      let issueContent = ''
-      if (includeTitle === 1) {
-        issueContent += `${title}\n\n`
-      }
-      issueContent += body
-
-      core.info(`Content of issue #${issue_number}:\n${issueContent}`)
+      const issueLabels = await getCurrentLabels(client, issue_number)
 
       // labels to be added & removed
-      let [addLabelItems, removeLabelItems]: [string[], string[]] = itemAnalyze(
+      const LabelAnalyzeResult = ruleAnalyze(
         labelParams,
         issueContent,
         author_association,
         event_name
       )
+      let addLabelItems = LabelAnalyzeResult[0]
+      const removeLabelItems = LabelAnalyzeResult[1]
 
       // comments to be added
-      const addCommentItems: string[] = itemAnalyze(
+      const addCommentItems = ruleAnalyze(
         commentParams,
         issueContent,
         author_association,
@@ -148,157 +174,137 @@ async function run(): Promise<void> {
   }
 }
 
-function itemAnalyze(
-  itemMap: item_t[],
+function ruleAnalyze(
+  itemMap: IRuleItem[],
   issueContent: string,
   author_association: string,
-  event_name: string
+  event_name: ModeEvent
 ): [string[], string[]] {
   const addItems: string[] = []
   const addItemNames: Set<string> = new Set()
   const removeItems: string[] = []
 
   for (const itemParams of itemMap) {
-    const item: string = itemParams.get('content')
-    const itemName: string = itemParams.get('name')
-    const globs: string[] = itemParams.get('regexes')
-    const allowedAuthorAssociation: string[] =
-      itemParams.get('author_association')
-    const mode: item_t = itemParams.get('mode')
-    const skipIf: string[] = itemParams.get('skip-if')
-    const removeIf: string[] = itemParams.get('remove-if')
+    const item: string = itemParams.content ?? ''
+    const itemName: string = itemParams.name
+    const globs: string[] = itemParams.regexes
+    const allowedAuthorAssociation: string[] = itemParams.author_association
+    const mode: IMode = itemParams.mode
+    const skipIf: string[] = itemParams.skip_if
+    const removeIf: string[] = itemParams.remove_if
     const needAdd: boolean = checkEvent(event_name, mode, 'add')
     const needRemove: boolean = checkEvent(event_name, mode, 'remove')
-    if (
-      (needAdd || needRemove) &&
-      skipIf.filter(x => addItemNames.has(x)).length === 0
-    ) {
-      if (
-        removeIf.filter(x => addItemNames.has(x)).length === 0 &&
-        checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
-        checkRegexes(issueContent, globs)
-      ) {
-        if (needAdd) {
-          // contents can be duplicated, but only added once (set content="" to skip add)
-          if (item !== '' && !addItems.includes(item)) {
-            addItems.push(item)
-          }
-          // add itemName regardless of whether the content is duplicated
-          addItemNames.add(itemName)
-        }
-      } else {
-        if (needRemove) {
-          // Ibid.
-          if (item !== '' && !removeItems.includes(item)) {
-            removeItems.push(item)
-          }
-        }
-      }
-    } else {
+
+    core.debug(
+      `item \`${itemName}\` (needAdd = ${needAdd}, needRemove = ${needRemove}, mode = ${JSON.stringify(mode)})`
+    )
+
+    if (skipIf.filter(x => addItemNames.has(x)).length > 0) {
+      // 此项的 skip-if 中包含待添加的项，直接跳过
       if (core.isDebug()) {
         core.debug(
-          `needAdd = ${needAdd}, needRemove = ${needRemove}, mode = ${JSON.stringify(
-            Object.fromEntries(mode.entries())
-          )}`
+          `Skip item, because skip_if \`${skipIf}\` contains some item in added items \`${Array.from(addItemNames)}\``
         )
-        core.debug(`Ignore item \`${itemName}\`.`)
       }
+      continue
+    }
+
+    if (removeIf.filter(x => addItemNames.has(x)).length > 0) {
+      // 此项的 remove-if 中包含待添加的项，直接删除，优先级高于 needRemove
+      if (item !== '' && !removeItems.includes(item)) {
+        if (core.isDebug()) {
+          core.debug(
+            `Remove item, because remove_if \`${removeIf}\` contains some item in added items \`${Array.from(addItemNames)}\``
+          )
+        }
+        removeItems.push(item)
+      }
+      continue
+    }
+
+    if (
+      checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
+      checkRegexes(issueContent, globs)
+    ) {
+      if (needAdd) {
+        if (item !== '' && !addItems.includes(item)) {
+          addItems.push(item)
+        }
+        addItemNames.add(itemName)
+      }
+    } else if (needRemove && item !== '' && !removeItems.includes(item)) {
+      removeItems.push(item)
     }
   }
+
+  // 返回需要添加的项和需要删除的项，删除优先级高于添加
   return [addItems.filter(item => !removeItems.includes(item)), removeItems]
 }
 
-function getEventDetails(issue: any, repr: string): item_t {
-  const eventDetails: item_t = new Map()
-  try {
-    eventDetails.set('issue_number', issue.number ? issue.number : NaN)
-    eventDetails.set('title', issue.title ? issue.title : '')
-    eventDetails.set('body', issue.body ? issue.body : '')
-    eventDetails.set(
-      'author_association',
-      issue.author_association ? issue.author_association : ''
-    )
-    eventDetails.set('created_at', issue.created_at ? issue.created_at : '')
-  } catch (error) {
-    throw Error(`could not get ${repr} from context (${error})`)
+function getEventInfo(): IEventInfo {
+  const getEventDetails = (issue: {
+    [key: string]: unknown
+    number?: number
+    title?: string
+    body?: string
+    created_at?: string
+    author_association?: string
+  }): IEventInfo => {
+    return {
+      event_name: github.context.eventName,
+      issue_number: issue.number ?? NaN,
+      title: issue.title ?? '',
+      body: issue.body ?? '',
+      created_at: issue.created_at ?? '',
+      author_association: issue.author_association ?? ''
+    }
   }
-  return eventDetails
-}
-
-function getIssueNumbersFromMessage(messages: string): number[] {
-  const issue_numbers: number[] = []
-  const globs = /(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/
-  let matchResult = messages.match(globs)
-  while (matchResult && matchResult.index) {
-    issue_numbers.push(parseInt(RegExp.$1))
-    messages = messages.substr(matchResult.index + matchResult[0].length)
-    matchResult = messages.match(globs)
+  const payload = github.context.payload
+  const event_name = github.context.eventName
+  if (event_name === 'issues') {
+    return getEventDetails(payload.issue ?? {})
   }
-  return issue_numbers
-}
 
-function getPushEventDetails(payload: any): item_t {
-  const eventDetails: item_t = new Map()
-  try {
+  if (event_name === 'pull_request_target' || event_name === 'pull_request') {
+    return getEventDetails(payload.pull_request ?? {})
+  }
+
+  if (event_name === 'issue_comment') {
+    const eventInfo = getEventDetails(payload.comment ?? {})
+    eventInfo.issue_number = payload.issue?.number ?? NaN
+    eventInfo.title = payload.issue?.title ?? ''
+    return eventInfo
+  }
+
+  if (event_name === 'push') {
     let messages = ''
     for (const commit of payload.commits) messages += `${commit.message}\n\n`
-    const issue_numbers = getIssueNumbersFromMessage(messages)
-    eventDetails.set('issue_number', issue_numbers)
-    eventDetails.set('title', '')
-    eventDetails.set('body', messages)
-    eventDetails.set('author_association', '') // TODO
-    eventDetails.set('created_at', '1970-01-01T00:00:00Z') // TODO
-  } catch (error) {
-    throw Error(`could not get push event details from context (${error})`)
+    const issue_numbers: number[] = []
+    const globs = /(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/
+    let matchResult = messages.match(globs)
+    while (matchResult && matchResult.index) {
+      issue_numbers.push(parseInt(matchResult[1]))
+      messages = messages.slice(matchResult.index + matchResult[0].length)
+      matchResult = messages.match(globs)
+    }
+    return {
+      event_name: event_name,
+      issue_number: issue_numbers,
+      title: '',
+      body: messages,
+      created_at: '1970-01-01T00:00:00Z', // TODO
+      author_association: '' // TODO
+    }
   }
-  return eventDetails
+
+  throw Error(`could not handle event \`${event_name}\``)
 }
 
-function getEventInfo(): item_t {
-  const payload = github.context.payload
-  const event_name: string = github.context.eventName
-  if (event_name === 'issues') {
-    const eventInfo: item_t = getEventDetails(payload.issue, 'issue')
-    eventInfo.set('event_name', event_name)
-    return eventInfo
-  } else if (
-    event_name === 'pull_request_target' ||
-    event_name === 'pull_request'
-  ) {
-    const eventInfo: item_t = getEventDetails(
-      payload.pull_request,
-      'pull request'
-    )
-    eventInfo.set('event_name', event_name)
-    return eventInfo
-  } else if (event_name === 'issue_comment') {
-    const eventInfo: item_t = getEventDetails(payload.comment, 'issue comment')
-    const issue: item_t = getEventDetails(payload.issue, 'issue')
-    eventInfo.set('event_name', event_name)
-    eventInfo.set('issue_number', issue.get('issue_number'))
-    eventInfo.set('title', issue.get('title'))
-    return eventInfo
-  } else if (event_name === 'push') {
-    const eventInfo: item_t = getPushEventDetails(payload)
-    eventInfo.set('event_name', event_name)
-    return eventInfo
-    // } else if (event_name === 'commit_comment') {
-    //   const eventInfo: item_t = getEventDetails(payload.comment, 'commit comment')
-    //   const issue_numbers: number[] = getIssueNumbersFromMessage(
-    //     eventInfo.get('body')
-    //   )
-    //   eventInfo.set('issue_number', issue_numbers)
-    //   return eventInfo
-  } else {
-    throw Error(`could not handle event \`${event_name}\``)
-  }
-}
-
-async function getLabelCommentArrays(
-  client: any,
+async function loadConfigRules(
+  client: InstanceType<typeof GitHub>,
   configurationPath: string,
   syncLabels: number
-): Promise<[item_t[], item_t[]]> {
+): Promise<[IRuleItem[], IRuleItem[]]> {
   const response = await client.rest.repos.getContent({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
@@ -306,73 +312,89 @@ async function getLabelCommentArrays(
     ref: github.context.sha
   })
 
-  const data: any = response.data
+  const data = response.data as { content?: string }
   if (!data.content) {
     throw Error(`the configuration path provides an invalid file`)
   }
 
-  const configurationContent: string = Buffer.from(
-    data.content,
-    'base64'
-  ).toString('utf8')
-  const configObject: any = yaml.load(configurationContent)
+  const configObject = yaml.load(
+    Buffer.from(data.content, 'base64').toString('utf8')
+  )
 
   // transform `any` => `item_t[]` or throw if yaml is malformed:
   return getArraysFromObject(configObject, syncLabels)
 }
 
-function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
-  const isstr = (x: any): boolean => typeof x === 'string'
-  const isstrarr = (x: any): boolean => Array.isArray(x)
-  const isnull = (x: any): boolean => x === null
-  const pred_any2any = (x: any): any => x
-  const pred_any2anyarr = (x: any): any[] => [x]
+function getItemParamsFromItem(item: unknown, default_mode: IMode): IRuleItem {
+  if (item === null || typeof item !== 'object') {
+    throw Error(`found unexpected type of configuration object`)
+  }
+
+  const is_str = (x: unknown): boolean => typeof x === 'string'
+  const is_strarr = (x: unknown): boolean => Array.isArray(x)
+  const is_null = (x: unknown): boolean => x === null
+  const nopred = (x: unknown): unknown => x
+  const pred_2arr = (x: unknown): unknown[] => [x]
   const pred_2emptystr = (): string => ''
 
-  const str2str: item_t = new Map().set('cond', isstr).set('pred', pred_any2any)
-  const str2strarr: item_t = new Map()
-    .set('cond', isstr)
-    .set('pred', pred_any2anyarr)
-  const strarr2strarr: item_t = new Map()
-    .set('cond', isstrarr)
-    .set('pred', pred_any2any)
-  const null2str: item_t = new Map()
-    .set('cond', isnull)
-    .set('pred', pred_2emptystr)
-  const mode_cond_pred: item_t = new Map()
-    .set('cond', (): boolean => true)
-    .set('pred', getModeFromObject)
+  interface ICondPred {
+    cond: (x: unknown) => boolean
+    pred: (x: unknown) => unknown
+  }
 
-  const configMap: item_t = new Map([
-    ['name', [str2str]],
-    ['content', [str2str, null2str]],
-    ['author_association', [str2strarr, strarr2strarr]],
-    ['regexes', [str2strarr, strarr2strarr]],
-    ['mode', [mode_cond_pred]],
-    ['skip-if', [str2strarr, strarr2strarr]],
-    ['remove-if', [str2strarr, strarr2strarr]]
-  ])
-  const itemParams: item_t = new Map()
+  const str2str: ICondPred = {
+    cond: is_str,
+    pred: nopred
+  }
+  const str2strarr: ICondPred = {
+    cond: is_str,
+    pred: pred_2arr
+  }
+  const strarr2strarr: ICondPred = {
+    cond: is_strarr,
+    pred: nopred
+  }
+  const null2str: ICondPred = {
+    cond: is_null,
+    pred: pred_2emptystr
+  }
+  const mode_cond_pred: ICondPred = {
+    cond: (): boolean => true,
+    pred: getModeFromObject
+  }
+
+  const configMap: { [key: string]: ICondPred[] } = {
+    name: [str2str],
+    content: [str2str, null2str],
+    author_association: [str2strarr, strarr2strarr],
+    regexes: [str2strarr, strarr2strarr],
+    mode: [mode_cond_pred],
+    skip_if: [str2strarr, strarr2strarr],
+    remove_if: [str2strarr, strarr2strarr]
+  }
+  const itemParams: IRuleItem = {
+    name: '',
+    content: undefined,
+    author_association: [],
+    regexes: [],
+    mode: default_mode,
+    skip_if: [],
+    remove_if: []
+  }
   for (const key in item) {
-    if (configMap.has(key)) {
-      const value = item[key]
-      const cond_preds: item_t[] = configMap.get(key)
+    // skip-if -> skip_if, ...
+    const replaced_key = key.replace('-', '_')
+    if (replaced_key in configMap) {
+      const value = (item as { [key: string]: unknown })[key]
+      const cond_preds = configMap[replaced_key]
       for (const cond_pred of cond_preds) {
-        const cond = cond_pred.get('cond')
-        const pred = cond_pred.get('pred')
-        if (
-          typeof cond == 'function' &&
-          typeof pred == 'function' &&
-          cond(value)
-        ) {
-          itemParams.set(key, pred(value))
+        if (cond_pred.cond(value)) {
+          itemParams[replaced_key] = cond_pred.pred(value)
           break
         }
       }
-      if (!itemParams.has(key)) {
-        const itemRepr: string = itemParams.has('name')
-          ? itemParams.get('name')
-          : 'some item'
+      if (!(replaced_key in itemParams)) {
+        const itemRepr = itemParams.name ?? 'some item'
         throw Error(
           `found unexpected \`${value}\` (type \`${typeof key}\`) of field \`${key}\` in ${itemRepr}`
         )
@@ -381,47 +403,88 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
       throw Error(`found unexpected field \`${key}\``)
     }
   }
-
-  if (!itemParams.has('name') || !itemParams.get('name')) {
+  if (!itemParams.name) {
     throw Error(`some item's name is missing`)
   }
-
-  const itemName: string = itemParams.get('name')
-  if (!itemParams.has('content')) {
-    itemParams.set('content', itemName)
-  }
-  if (!itemParams.has('regexes')) {
-    itemParams.set('regexes', [])
-  }
-  if (!itemParams.has('author_association')) {
-    itemParams.set('author_association', [])
-  }
-  if (!itemParams.has('skip-if')) {
-    itemParams.set('skip-if', [])
-  }
-  if (!itemParams.has('remove-if')) {
-    itemParams.set('remove-if', [])
-  }
-  if (!itemParams.has('mode')) {
-    itemParams.set('mode', default_mode)
-  }
-  return itemParams
+  itemParams.content ??= itemParams.name
+  return itemParams as IRuleItem
 }
 
-function getModeFromObject(configObject: any): item_t {
-  const modeMap: item_t = new Map()
-  if (typeof configObject === 'string') {
-    modeMap.set(configObject, '__all__')
-  } else if (Array.isArray(configObject)) {
-    for (const value of configObject) {
-      modeMap.set(value, '__all__')
+function getModeEvent(modeItem: unknown): ModeEvent | undefined {
+  return modeItem === 'pull_request' ||
+    modeItem === 'pull_request_target' ||
+    modeItem === 'issues' ||
+    modeItem === 'issue_comment' ||
+    modeItem === 'push'
+    ? modeItem
+    : undefined
+}
+
+function appendMode(
+  mode: IMode,
+  modeKey: string,
+  modeItems: unknown[] | true = true
+): void {
+  if (modeKey === 'add' || modeKey === 'remove') {
+    if (mode[modeKey] === true) {
+    } else if (modeItems === true) {
+      mode[modeKey] = true
+    } else {
+      mode[modeKey] ??= []
+      for (const modeItem of modeItems) {
+        const modeItemValue = getModeEvent(modeItem)
+        if (!modeItemValue) {
+          throw Error(`found unexpected value \`${modeItem}\``)
+        }
+        mode[modeKey].push(modeItemValue)
+      }
+    }
+    return
+  }
+
+  const modeItemValue = getModeEvent(modeKey)
+  if (modeItemValue) {
+    if (modeItems === true) {
+      modeItems = ['add', 'remove']
+    }
+    for (const modeItem of modeItems) {
+      if (modeItem === 'add') {
+        mode.add ??= []
+        if (mode.add !== true) mode.add.push(modeItemValue)
+      } else if (modeItem === 'remove') {
+        mode.remove ??= []
+        if (mode.remove !== true) mode.remove.push(modeItemValue)
+      } else {
+        throw Error(`found unexpected value \`${modeItem}\``)
+      }
     }
   } else {
+    throw Error(`found unexpected value \`${modeKey}\``)
+  }
+}
+
+function getModeFromObject(configObject: unknown): IMode {
+  const modeMap: IMode = { add: [], remove: [] }
+  if (typeof configObject === 'string') {
+    appendMode(modeMap, configObject)
+  } else if (Array.isArray(configObject)) {
+    for (const value of configObject) {
+      if (typeof value !== 'string') {
+        throw Error(`found unexpected type of configuration object`)
+      }
+      appendMode(modeMap, value)
+    }
+  } else if (configObject !== null && typeof configObject === 'object') {
     for (const key in configObject) {
-      if (configObject[key] === null) {
-        modeMap.set(key, '__all__')
+      const value = (configObject as { [key: string]: unknown })[key]
+      if (value === null) {
+        appendMode(modeMap, key, true)
+      } else if (typeof value === 'string') {
+        appendMode(modeMap, key, [value])
+      } else if (Array.isArray(value)) {
+        appendMode(modeMap, key, value)
       } else {
-        modeMap.set(key, configObject[key])
+        throw Error(`found unexpected type of configuration object`)
       }
     }
   }
@@ -429,56 +492,54 @@ function getModeFromObject(configObject: any): item_t {
 }
 
 function getItemArrayFromObject(
-  configObject: any,
-  default_mode: item_t
-): item_t[] {
-  const itemArray: item_t[] = []
+  configObject: unknown,
+  default_mode: IMode
+): IRuleItem[] {
+  const itemArray: IRuleItem[] = []
+  if (!Array.isArray(configObject)) {
+    throw Error(`found unexpected type of configuration object`)
+  }
   for (const item of configObject) {
-    const itemParams: item_t = getItemParamsFromItem(item, default_mode)
+    const itemParams: IRuleItem = getItemParamsFromItem(item, default_mode)
     itemArray.push(itemParams)
   }
   return itemArray
 }
 
 function getArraysFromObject(
-  configObject: any,
+  configObject: unknown,
   syncLabels: number
-): [item_t[], item_t[]] {
-  let labelParamsObject: any = []
-  let commentParamsObject: any = []
-
-  let labelParams: item_t[] = []
-  let commentParams: item_t[] = []
-  let default_mode: item_t | undefined = undefined
+): [IRuleItem[], IRuleItem[]] {
+  if (configObject === null || typeof configObject !== 'object') {
+    throw Error(`found unexpected type of configuration object`)
+  }
 
   for (const key in configObject) {
-    if (key === 'labels') {
-      labelParamsObject = configObject[key]
-    } else if (key === 'comments') {
-      commentParamsObject = configObject[key]
-    } else if (key === 'default-mode') {
-      default_mode = getModeFromObject(configObject[key])
-    } else {
-      throw Error(
-        `found unexpected key for ${key} (should be \`labels\` or \`comments\`)`
-      )
+    if (key === 'labels' || key === 'comments' || key === 'default-mode') {
+      continue
     }
+    throw Error(`found unexpected field \`${key}\``)
   }
+
+  const labelParamsObject = 'labels' in configObject ? configObject.labels : []
+  const commentParamsObject =
+    'comments' in configObject ? configObject.comments : []
+  let default_mode: IMode | undefined =
+    'default-mode' in configObject
+      ? getModeFromObject(configObject['default-mode'])
+      : undefined
+
+  let labelParams: IRuleItem[] = []
+  let commentParams: IRuleItem[] = []
+
   if (default_mode === undefined) {
     if (syncLabels === 1) {
-      default_mode = new Map([
-        ['pull_request', ['add', 'remove']],
-        ['pull_request_target', ['add', 'remove']],
-        ['issue', ['add', 'remove']],
-        ['issue_comment', ['add', 'remove']]
-      ])
+      default_mode = {
+        add: true,
+        remove: true
+      }
     } else if (syncLabels === 0) {
-      default_mode = new Map([
-        ['pull_request', ['add']],
-        ['pull_request_target', ['add']],
-        ['issue', ['add']],
-        ['issue_comment', ['add']]
-      ])
+      default_mode = { add: true, remove: [] }
     } else {
       throw Error(
         `found unexpected value of syncLabels (${syncLabels}, should be 0 or 1)`
@@ -511,21 +572,14 @@ function checkRegexes(body: string, regexes: string[]): boolean {
 }
 
 function checkEvent(
-  event_name: string,
-  mode: item_t,
-  type: string // "add", "remove"
+  event_name: ModeEvent,
+  mode: IMode,
+  type: 'add' | 'remove'
 ): boolean {
-  const event_rule: string[] | string | undefined = mode.get(event_name)
-  const type_rule: string[] | string | undefined = mode.get(type)
+  const type_mode = mode[type]
   return (
-    (event_rule !== undefined &&
-      (event_rule === '__all__' ||
-        event_rule === type ||
-        (Array.isArray(event_rule) && event_rule.includes(type)))) ||
-    (type_rule !== undefined &&
-      (type_rule === '__all__' ||
-        type_rule === event_name ||
-        (Array.isArray(type_rule) && type_rule.includes(event_name))))
+    type_mode !== undefined &&
+    (type_mode === true || type_mode.includes(event_name))
   )
 }
 
@@ -552,8 +606,8 @@ function checkAuthorAssociation(
   return true
 }
 
-async function getLabels(
-  client: any,
+async function getCurrentLabels(
+  client: InstanceType<typeof GitHub>,
   issue_number: number
 ): Promise<Set<string>> {
   const labels: Set<string> = new Set()
@@ -576,7 +630,7 @@ async function getLabels(
 }
 
 async function addLabels(
-  client: any,
+  client: InstanceType<typeof GitHub>,
   issue_number: number,
   labels: string[]
 ): Promise<void> {
@@ -594,7 +648,7 @@ async function addLabels(
 }
 
 async function removeLabel(
-  client: any,
+  client: InstanceType<typeof GitHub>,
   issue_number: number,
   name: string
 ): Promise<void> {
@@ -612,7 +666,7 @@ async function removeLabel(
 }
 
 async function addComment(
-  client: any,
+  client: InstanceType<typeof GitHub>,
   issue_number: number,
   body: string
 ): Promise<void> {
