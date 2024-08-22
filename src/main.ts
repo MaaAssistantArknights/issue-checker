@@ -167,8 +167,8 @@ function itemAnalyze(
     const mode: item_t = itemParams.get('mode')
     const skipIf: string[] = itemParams.get('skip-if')
     const removeIf: string[] = itemParams.get('remove-if')
-    const needAdd: Boolean = checkEvent(event_name, mode, 'add')
-    const needRemove: Boolean = checkEvent(event_name, mode, 'remove')
+    const needAdd: boolean = checkEvent(event_name, mode, 'add')
+    const needRemove: boolean = checkEvent(event_name, mode, 'remove')
     if (
       (needAdd || needRemove) &&
       skipIf.filter(x => addItemNames.has(x)).length === 0
@@ -226,7 +226,7 @@ function getEventDetails(issue: any, repr: string): item_t {
 }
 
 function getIssueNumbersFromMessage(messages: string): number[] {
-  let issue_numbers: number[] = []
+  const issue_numbers: number[] = []
   const globs = /(?:[Ff]ix|[Cc]lose)\s+(?:#|.*\/issues\/)(\d+)/
   let matchResult = messages.match(globs)
   while (matchResult && matchResult.index) {
@@ -242,7 +242,7 @@ function getPushEventDetails(payload: any): item_t {
   try {
     let messages = ''
     for (const commit of payload.commits) messages += `${commit.message}\n\n`
-    let issue_numbers = getIssueNumbersFromMessage(messages)
+    const issue_numbers = getIssueNumbersFromMessage(messages)
     eventDetails.set('issue_number', issue_numbers)
     eventDetails.set('title', '')
     eventDetails.set('body', messages)
@@ -322,9 +322,9 @@ async function getLabelCommentArrays(
 }
 
 function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
-  const isstr = (x: any): Boolean => typeof x === 'string'
-  const isstrarr = (x: any): Boolean => Array.isArray(x)
-  const isnull = (x: any): Boolean => x === null
+  const isstr = (x: any): boolean => typeof x === 'string'
+  const isstrarr = (x: any): boolean => Array.isArray(x)
+  const isnull = (x: any): boolean => x === null
   const pred_any2any = (x: any): any => x
   const pred_any2anyarr = (x: any): any[] => [x]
   const pred_2emptystr = (): string => ''
@@ -340,7 +340,7 @@ function getItemParamsFromItem(item: any, default_mode: item_t): item_t {
     .set('cond', isnull)
     .set('pred', pred_2emptystr)
   const mode_cond_pred: item_t = new Map()
-    .set('cond', (): Boolean => true)
+    .set('cond', (): boolean => true)
     .set('pred', getModeFromObject)
 
   const configMap: item_t = new Map([
@@ -490,7 +490,7 @@ function getArraysFromObject(
   return [labelParams, commentParams]
 }
 
-function checkRegexes(body: string, regexes: string[]): Boolean {
+function checkRegexes(body: string, regexes: string[]): boolean {
   let matched
 
   // If several regex entries are provided we require all of them to match for the label to be applied.
@@ -514,7 +514,7 @@ function checkEvent(
   event_name: string,
   mode: item_t,
   type: string // "add", "remove"
-): Boolean {
+): boolean {
   const event_rule: string[] | string | undefined = mode.get(event_name)
   const type_rule: string[] | string | undefined = mode.get(type)
   return (
@@ -532,7 +532,7 @@ function checkEvent(
 function checkAuthorAssociation(
   author_association: string,
   regexes: string[]
-): Boolean {
+): boolean {
   let matched
 
   // If several regex entries are provided we require all of them to match for the label to be applied.
