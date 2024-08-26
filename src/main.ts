@@ -95,12 +95,24 @@ async function run(): Promise<void> {
     if (containsLink(body)) {
       const updatedBody = addWarningToComment(body)
       core.info(`Updating comment in issue #${issue_number}`)
-      await client.rest.issues.update({
-        owner: github.context.repo.owner,
-        repo: github.context.repo.repo,
-        issue_number,
-        body: updatedBody
-      })
+
+      if (Array.isArray(issue_number)) {
+        for (const issue of issue_number) {
+          await client.rest.issues.update({
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            issue_number: issue,
+            body: updatedBody
+          })
+        }
+      } else {
+        await client.rest.issues.update({
+          owner: github.context.repo.owner,
+          repo: github.context.repo.repo,
+          issue_number,
+          body: updatedBody
+        })
+      }
     }
 
     if (event_name === 'push' /* || event_name === 'commit_comment'*/) {
