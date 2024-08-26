@@ -528,3 +528,9 @@ comments:
   mode: add
   skip-if:
   - "Log upload failed"
+- name: Check Link
+  regexes:
+  - 'https?://[^\\s]+'
+  content:
+    "⚠️存在未确认的链接，请谨慎访问\n\n${body}"
+  mode: update
