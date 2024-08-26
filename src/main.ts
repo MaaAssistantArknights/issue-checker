@@ -35,6 +35,16 @@ interface IMode {
   remove: ModeEvent[] | true
 }
 
+function containsLink(text: string): boolean {
+  const urlRegex = /(https?:\/\/[^\s]+)/g
+  return urlRegex.test(text)
+}
+
+function addWarningToComment(text: string): string {
+  const warningMessage = "\n\n警告⚠️未确认的链接，请谨慎访问"
+  return text + warningMessage
+}
+
 async function run(): Promise<void> {
   try {
     // Configuration parameters
@@ -80,6 +90,18 @@ async function run(): Promise<void> {
 
     // A client to load data from GitHub
     const client = github.getOctokit(token)
+
+    // Check for links in the issue or PR body
+    if (containsLink(body)) {
+      const updatedBody = addWarningToComment(body)
+      core.info(`Updating comment in issue #${issue_number}`)
+      await client.rest.issues.update({
+        owner: github.context.repo.owner,
+        repo: github.context.repo.repo,
+        issue_number,
+        body: updatedBody
+      })
+    }
 
     if (event_name === 'push' /* || event_name === 'commit_comment'*/) {
       if (issue_number && Array.isArray(issue_number)) {
