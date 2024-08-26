@@ -3,26 +3,6 @@ import * as github from '@actions/github'
 import { GitHub } from '@actions/github/lib/utils'
 import * as yaml from 'js-yaml'
 
-interface IRuleItem {
-  [key: string]: unknown
-  name: string
-  content?: string
-  regexes: string[]
-  author_association: string[]
-  mode: IMode
-  skip_if: string[]
-  remove_if: string[]
-}
-
-interface IEventInfo {
-  event_name: string
-  issue_number: number | number[] // number[] for push event
-  title: string
-  body: string
-  created_at: string
-  author_association: string
-}
-
 type ModeEvent =
   | 'pull_request'
   | 'pull_request_target'
@@ -30,9 +10,47 @@ type ModeEvent =
   | 'issue_comment'
   | 'push'
 
-interface IMode {
+interface ILabelMode {
   add: ModeEvent[] | true
   remove: ModeEvent[] | true
+}
+
+interface ICommentMode {
+  type: 'add' | 'update'
+  event: ModeEvent[] | true
+}
+
+interface IRuleBase {
+  [key: string]: unknown
+  name: string
+  content?: string
+  regexes: string[]
+  author_association: string[]
+  skip_if: string[]
+}
+
+interface ILabelRule extends IRuleBase {
+  mode: ILabelMode
+  remove_if: string[]
+}
+
+interface ICommentRule extends IRuleBase {
+  mode: ICommentMode
+}
+
+interface IEventInfo {
+  event_name: string
+  issue_number: number | number[] // number[] for push event
+  comment_id?: number
+  title: string
+  body: string
+  created_at: string
+  author_association: string
+}
+
+interface ICondPred {
+  cond: (x: unknown) => boolean
+  pred: (x: unknown) => unknown
 }
 
 async function run(): Promise<void> {
@@ -55,6 +73,7 @@ async function run(): Promise<void> {
     const {
       event_name: _event_name,
       issue_number: issue_number,
+      comment_id: comment_id,
       title: title,
       body: body,
       created_at: created_at,
@@ -74,9 +93,6 @@ async function run(): Promise<void> {
       core.debug(`created_at: ${created_at}`)
       core.debug(`author_association: ${author_association}`)
     }
-
-    const issueContent = (includeTitle === 1 ? `${title}\n\n` : '') + body
-    core.info(`Content of issue #${issue_number}:\n${issueContent}`)
 
     // A client to load data from GitHub
     const client = github.getOctokit(token)
@@ -109,7 +125,7 @@ async function run(): Promise<void> {
         core.debug(`Parameter \`notBefore\` is not set or is set invalid.`)
       }
 
-      const [labelParams, commentParams] = await loadConfigRules(
+      const [labelParams, commentParams] = await loadRules(
         client,
         configPath,
         syncLabels
@@ -117,22 +133,22 @@ async function run(): Promise<void> {
       const issueLabels = await getCurrentLabels(client, issue_number)
 
       // labels to be added & removed
-      const LabelAnalyzeResult = ruleAnalyze(
+      const LabelAnalyzeResult = labelRuleAnalyze(
         labelParams,
-        issueContent,
+        (includeTitle === 1 ? `${title}\n\n` : '') + body,
         author_association,
         event_name
       )
       let addLabelItems = LabelAnalyzeResult[0]
       const removeLabelItems = LabelAnalyzeResult[1]
 
-      // comments to be added
-      const addCommentItems = ruleAnalyze(
+      // comments to be added & updated
+      const [addCommentItems, updateCommentItems] = commentRuleAnalyze(
         commentParams,
-        issueContent,
+        body,
         author_association,
         event_name
-      )[0]
+      )
 
       if (core.isDebug()) {
         core.debug(`labels have been added: [${Array.from(issueLabels)}]`)
@@ -159,10 +175,23 @@ async function run(): Promise<void> {
         }
       }
 
-      if (addCommentItems.length > 0) {
-        for (const itemBody of addCommentItems) {
-          core.info(`Comment ${itemBody} to issue #${issue_number}`)
-          addComment(client, issue_number, itemBody)
+      for (const itemBody of addCommentItems) {
+        core.info(`Comment ${itemBody} to issue #${issue_number}`)
+        addComment(client, issue_number, itemBody)
+      }
+
+      if (event_name === 'issue_comment') {
+        if (!comment_id || isNaN(comment_id)) {
+          throw Error(`event name is ${event_name}, but comment_id is missing`)
+        }
+        for (const updateCommentItem of updateCommentItems) {
+          core.info(`Update comment ${comment_id} to issue #${issue_number}`)
+          updateComment(client, comment_id, updateCommentItem)
+        }
+      } else {
+        for (const updateCommentItem of updateCommentItems) {
+          core.info(`Update issue #${issue_number}`)
+          updateIssue(client, issue_number, updateCommentItem)
         }
       }
     }
@@ -174,8 +203,64 @@ async function run(): Promise<void> {
   }
 }
 
-function ruleAnalyze(
-  itemMap: IRuleItem[],
+function commentRuleAnalyze(
+  itemMap: ICommentRule[],
+  issueContent: string,
+  author_association: string,
+  event_name: ModeEvent
+): [string[], string[]] {
+  const addItems: string[] = []
+  const addItemNames: Set<string> = new Set()
+  const updateItems: string[] = []
+
+  for (const itemParams of itemMap) {
+    const item = itemParams.content ?? ''
+    const itemName = itemParams.name
+    const globs = itemParams.regexes
+    const allowedAuthorAssociation = itemParams.author_association
+    const mode = itemParams.mode
+    const skipIf = itemParams.skip_if
+    const modeType = mode.type
+    const needComment = mode.event === true || mode.event.includes(event_name)
+
+    if (skipIf.filter(x => addItemNames.has(x)).length > 0) {
+      // 此项的 skip-if 中包含待添加的项，直接跳过
+      if (core.isDebug()) {
+        core.debug(
+          `Skip item, because skip_if \`${skipIf}\` contains some item in added items \`${Array.from(addItemNames)}\``
+        )
+      }
+      continue
+    }
+
+    if (!needComment) {
+      continue
+    }
+
+    if (checkAuthorAssociation(author_association, allowedAuthorAssociation)) {
+      const matches = checkRegexes(issueContent, globs)
+      if (matches === false) {
+        continue
+      }
+      // TODO item: "...${i,j}..." -> "...${matches[i][j]}..."
+
+      // item: "...${body}..." -> "...${issueContent}..."
+      const itemBody = item.replace(/\$\{body\}/g, issueContent)
+
+      if (modeType === 'add') {
+        addItemNames.add(itemName)
+        if (item !== '') addItems.push(itemBody)
+      } else if (modeType === 'update') {
+        if (item !== '') updateItems.push(itemBody)
+      }
+    }
+  }
+
+  return [addItems, updateItems]
+}
+
+function labelRuleAnalyze(
+  itemMap: ILabelRule[],
   issueContent: string,
   author_association: string,
   event_name: ModeEvent
@@ -185,15 +270,19 @@ function ruleAnalyze(
   const removeItems: string[] = []
 
   for (const itemParams of itemMap) {
-    const item: string = itemParams.content ?? ''
-    const itemName: string = itemParams.name
-    const globs: string[] = itemParams.regexes
-    const allowedAuthorAssociation: string[] = itemParams.author_association
-    const mode: IMode = itemParams.mode
-    const skipIf: string[] = itemParams.skip_if
-    const removeIf: string[] = itemParams.remove_if
-    const needAdd: boolean = checkEvent(event_name, mode, 'add')
-    const needRemove: boolean = checkEvent(event_name, mode, 'remove')
+    const item = itemParams.content ?? ''
+    const itemName = itemParams.name
+    const globs = itemParams.regexes
+    const allowedAuthorAssociation = itemParams.author_association
+    const mode = itemParams.mode
+    const skipIf = itemParams.skip_if
+    const removeIf = itemParams.remove_if
+    const needAdd =
+      mode.add !== undefined &&
+      (mode.add === true || mode.add.includes(event_name))
+    const needRemove =
+      mode.remove !== undefined &&
+      (mode.remove === true || mode.remove.includes(event_name))
 
     core.debug(
       `item \`${itemName}\` (needAdd = ${needAdd}, needRemove = ${needRemove}, mode = ${JSON.stringify(mode)})`
@@ -224,7 +313,7 @@ function ruleAnalyze(
 
     if (
       checkAuthorAssociation(author_association, allowedAuthorAssociation) &&
-      checkRegexes(issueContent, globs)
+      checkRegexes(issueContent, globs) !== false
     ) {
       if (needAdd) {
         if (item !== '' && !addItems.includes(item)) {
@@ -271,6 +360,7 @@ function getEventInfo(): IEventInfo {
 
   if (event_name === 'issue_comment') {
     const eventInfo = getEventDetails(payload.comment ?? {})
+    eventInfo.comment_id = payload.comment?.id ?? NaN
     eventInfo.issue_number = payload.issue?.number ?? NaN
     eventInfo.title = payload.issue?.title ?? ''
     return eventInfo
@@ -300,11 +390,11 @@ function getEventInfo(): IEventInfo {
   throw Error(`could not handle event \`${event_name}\``)
 }
 
-async function loadConfigRules(
+async function loadRules(
   client: InstanceType<typeof GitHub>,
   configurationPath: string,
   syncLabels: number
-): Promise<[IRuleItem[], IRuleItem[]]> {
+): Promise<[ILabelRule[], ICommentRule[]]> {
   const response = await client.rest.repos.getContent({
     owner: github.context.repo.owner,
     repo: github.context.repo.repo,
@@ -322,106 +412,11 @@ async function loadConfigRules(
   )
 
   // transform `any` => `item_t[]` or throw if yaml is malformed:
-  return getArraysFromObject(configObject, syncLabels)
+  return parseAllRules(configObject, syncLabels)
 }
 
-function getItemParamsFromItem(item: unknown, default_mode: IMode): IRuleItem {
-  if (item === null || typeof item !== 'object') {
-    throw Error(`found unexpected type of configuration object`)
-  }
-
-  const is_str = (x: unknown): boolean => typeof x === 'string'
-  const is_strarr = (x: unknown): boolean => Array.isArray(x)
-  const is_null = (x: unknown): boolean => x === null
-  const nopred = (x: unknown): unknown => x
-  const pred_2arr = (x: unknown): unknown[] => [x]
-  const pred_2emptystr = (): string => ''
-
-  interface ICondPred {
-    cond: (x: unknown) => boolean
-    pred: (x: unknown) => unknown
-  }
-
-  const str2str: ICondPred = {
-    cond: is_str,
-    pred: nopred
-  }
-  const str2strarr: ICondPred = {
-    cond: is_str,
-    pred: pred_2arr
-  }
-  const strarr2strarr: ICondPred = {
-    cond: is_strarr,
-    pred: nopred
-  }
-  const null2str: ICondPred = {
-    cond: is_null,
-    pred: pred_2emptystr
-  }
-  const mode_cond_pred: ICondPred = {
-    cond: (): boolean => true,
-    pred: getModeFromObject
-  }
-
-  const configMap: { [key: string]: ICondPred[] } = {
-    name: [str2str],
-    content: [str2str, null2str],
-    author_association: [str2strarr, strarr2strarr],
-    regexes: [str2strarr, strarr2strarr],
-    mode: [mode_cond_pred],
-    skip_if: [str2strarr, strarr2strarr],
-    remove_if: [str2strarr, strarr2strarr]
-  }
-  const itemParams: IRuleItem = {
-    name: '',
-    content: undefined,
-    author_association: [],
-    regexes: [],
-    mode: default_mode,
-    skip_if: [],
-    remove_if: []
-  }
-  for (const key in item) {
-    // skip-if -> skip_if, ...
-    const replaced_key = key.replace('-', '_')
-    if (replaced_key in configMap) {
-      const value = (item as { [key: string]: unknown })[key]
-      const cond_preds = configMap[replaced_key]
-      for (const cond_pred of cond_preds) {
-        if (cond_pred.cond(value)) {
-          itemParams[replaced_key] = cond_pred.pred(value)
-          break
-        }
-      }
-      if (!(replaced_key in itemParams)) {
-        const itemRepr = itemParams.name ?? 'some item'
-        throw Error(
-          `found unexpected \`${value}\` (type \`${typeof key}\`) of field \`${key}\` in ${itemRepr}`
-        )
-      }
-    } else {
-      throw Error(`found unexpected field \`${key}\``)
-    }
-  }
-  if (!itemParams.name) {
-    throw Error(`some item's name is missing`)
-  }
-  itemParams.content ??= itemParams.name
-  return itemParams as IRuleItem
-}
-
-function getModeEvent(modeItem: unknown): ModeEvent | undefined {
-  return modeItem === 'pull_request' ||
-    modeItem === 'pull_request_target' ||
-    modeItem === 'issues' ||
-    modeItem === 'issue_comment' ||
-    modeItem === 'push'
-    ? modeItem
-    : undefined
-}
-
-function appendMode(
-  mode: IMode,
+function appendLabelMode(
+  mode: ILabelMode,
   modeKey: string,
   modeItems: unknown[] | true = true
 ): void {
@@ -463,124 +458,311 @@ function appendMode(
   }
 }
 
-function getModeFromObject(configObject: unknown): IMode {
-  const modeMap: IMode = { add: [], remove: [] }
-  if (typeof configObject === 'string') {
-    appendMode(modeMap, configObject)
-  } else if (Array.isArray(configObject)) {
-    for (const value of configObject) {
+function parseLabelMode(modeItem: unknown): ILabelMode {
+  const modeMap: ILabelMode = { add: [], remove: [] }
+  if (typeof modeItem === 'string') {
+    appendLabelMode(modeMap, modeItem)
+  } else if (Array.isArray(modeItem)) {
+    for (const value of modeItem) {
       if (typeof value !== 'string') {
-        throw Error(`found unexpected type of configuration object`)
+        throw Error(
+          `parseLabelMode found unexpected type of configuration object`
+        )
       }
-      appendMode(modeMap, value)
+      appendLabelMode(modeMap, value)
     }
-  } else if (configObject !== null && typeof configObject === 'object') {
-    for (const key in configObject) {
-      const value = (configObject as { [key: string]: unknown })[key]
+  } else if (modeItem !== null && typeof modeItem === 'object') {
+    for (const key in modeItem) {
+      const value = (modeItem as { [key: string]: unknown })[key]
       if (value === null) {
-        appendMode(modeMap, key, true)
+        appendLabelMode(modeMap, key, true)
       } else if (typeof value === 'string') {
-        appendMode(modeMap, key, [value])
+        appendLabelMode(modeMap, key, [value])
       } else if (Array.isArray(value)) {
-        appendMode(modeMap, key, value)
+        appendLabelMode(modeMap, key, value)
       } else {
-        throw Error(`found unexpected type of configuration object`)
+        throw Error(
+          `parseLabelMode found unexpected type of configuration object`
+        )
       }
     }
   }
   return modeMap
 }
 
-function getItemArrayFromObject(
+function parseCommentMode(modeItem: unknown): ICommentMode {
+  const commentMode: ICommentMode = { type: 'add', event: true }
+  if (typeof modeItem === 'string') {
+    if (modeItem !== 'add' && modeItem !== 'update') {
+      throw Error(
+        `parseCommentMode found unexpected value \`${modeItem}\` of field \`type\``
+      )
+    }
+    commentMode.type = modeItem
+    return commentMode
+  }
+  if (modeItem === null || typeof modeItem !== 'object') {
+    throw Error(
+      `parseCommentMode found unexpected type of configuration object`
+    )
+  }
+  for (const key in modeItem) {
+    if (key !== 'type' && key !== 'event') {
+      throw Error(`parseCommentMode found unexpected field \`${key}\``)
+    }
+  }
+  if ('type' in modeItem) {
+    if (modeItem.type !== 'add' && modeItem.type !== 'update') {
+      throw Error(
+        `parseCommentMode found unexpected value \`${modeItem.type}\` of field \`type\``
+      )
+    }
+    commentMode.type = modeItem.type
+  }
+  if ('event' in modeItem) {
+    if (Array.isArray(modeItem.event)) {
+      commentMode.event = []
+      for (const modeEvent of modeItem.event) {
+        const modeEventValue = getModeEvent(modeEvent)
+        if (!modeEventValue) {
+          throw Error(
+            `parseCommentMode found unexpected value \`${modeEvent}\` of field \`event\``
+          )
+        }
+        commentMode.event.push(modeEventValue)
+      }
+    }
+    const modeEvent = getModeEvent(modeItem.event)
+    if (modeEvent === undefined) {
+      throw Error(
+        `parseCommentMode found unexpected value \`${modeItem.event}\` of field \`event\``
+      )
+    }
+    commentMode.event = [modeEvent]
+  }
+  return commentMode
+}
+
+function parseLabelRule(item: unknown, default_mode: ILabelMode): ILabelRule {
+  const is_str = (x: unknown): boolean => typeof x === 'string'
+  const is_strarr = (x: unknown): boolean => Array.isArray(x)
+  const nopred = (x: unknown): unknown => x
+  const pred_2arr = (x: unknown): unknown[] => [x]
+  const str2strarr: ICondPred = {
+    cond: is_str,
+    pred: pred_2arr
+  }
+  const strarr2strarr: ICondPred = {
+    cond: is_strarr,
+    pred: nopred
+  }
+  const mode_cond_pred: ICondPred = {
+    cond: (): boolean => true,
+    pred: parseLabelMode
+  }
+  return parseRule(
+    item,
+    {
+      remove_if: [str2strarr, strarr2strarr],
+      mode: [mode_cond_pred]
+    },
+    {
+      remove_if: [],
+      mode: default_mode
+    }
+  ) as ILabelRule
+}
+
+function parseCommentRule(
+  item: unknown,
+  default_mode: ICommentMode
+): ICommentRule {
+  const mode_cond_pred: ICondPred = {
+    cond: (): boolean => true,
+    pred: parseCommentMode
+  }
+  return parseRule(
+    item,
+    { mode: [mode_cond_pred] },
+    { mode: default_mode }
+  ) as ICommentRule
+}
+
+function parseRule(
+  item: unknown,
+  appendConfigMap: { [key: string]: ICondPred[] },
+  appendItemParams: { [key: string]: unknown }
+): IRuleBase {
+  if (item === null || typeof item !== 'object') {
+    throw Error(`parseRule found unexpected type of configuration object`)
+  }
+
+  const is_str = (x: unknown): boolean => typeof x === 'string'
+  const is_strarr = (x: unknown): boolean => Array.isArray(x)
+  const is_null = (x: unknown): boolean => x === null
+  const nopred = (x: unknown): unknown => x
+  const pred_2arr = (x: unknown): unknown[] => [x]
+  const pred_2emptystr = (): string => ''
+
+  const str2str: ICondPred = {
+    cond: is_str,
+    pred: nopred
+  }
+  const str2strarr: ICondPred = {
+    cond: is_str,
+    pred: pred_2arr
+  }
+  const strarr2strarr: ICondPred = {
+    cond: is_strarr,
+    pred: nopred
+  }
+  const null2str: ICondPred = {
+    cond: is_null,
+    pred: pred_2emptystr
+  }
+
+  const configMap: { [key: string]: ICondPred[] } = {
+    ...appendConfigMap,
+    name: [str2str],
+    content: [str2str, null2str],
+    author_association: [str2strarr, strarr2strarr],
+    regexes: [str2strarr, strarr2strarr],
+    skip_if: [str2strarr, strarr2strarr]
+  }
+  const itemParams: IRuleBase = {
+    ...appendItemParams,
+    name: '',
+    content: undefined,
+    author_association: [],
+    regexes: [],
+    skip_if: []
+  }
+  for (const key in item) {
+    // skip-if -> skip_if, ...
+    const replaced_key = key.replace('-', '_')
+    if (replaced_key in configMap) {
+      const value = (item as { [key: string]: unknown })[key]
+      const cond_preds = configMap[replaced_key]
+      for (const cond_pred of cond_preds) {
+        if (cond_pred.cond(value)) {
+          itemParams[replaced_key] = cond_pred.pred(value)
+          break
+        }
+      }
+    } else {
+      throw Error(`found unexpected field \`${key}\``)
+    }
+  }
+  if (!itemParams.name) {
+    throw Error(`some item's name is missing`)
+  }
+  itemParams.content ??= itemParams.name
+  return itemParams
+}
+
+function getModeEvent(modeItem: unknown): ModeEvent | undefined {
+  return modeItem === 'pull_request' ||
+    modeItem === 'pull_request_target' ||
+    modeItem === 'issues' ||
+    modeItem === 'issue_comment' ||
+    modeItem === 'push'
+    ? modeItem
+    : undefined
+}
+
+function parseLabelRules(
   configObject: unknown,
-  default_mode: IMode
-): IRuleItem[] {
-  const itemArray: IRuleItem[] = []
+  default_mode: ILabelMode
+): ILabelRule[] {
+  const itemArray: ILabelRule[] = []
   if (!Array.isArray(configObject)) {
-    throw Error(`found unexpected type of configuration object`)
+    throw Error(`configObject found unexpected type of configuration object`)
   }
   for (const item of configObject) {
-    const itemParams: IRuleItem = getItemParamsFromItem(item, default_mode)
+    const itemParams: ILabelRule = parseLabelRule(item, default_mode)
     itemArray.push(itemParams)
   }
   return itemArray
 }
 
-function getArraysFromObject(
+function parseCommentRules(
+  configObject: unknown,
+  default_mode: ICommentMode
+): ICommentRule[] {
+  const itemArray: ICommentRule[] = []
+  if (!Array.isArray(configObject)) {
+    throw Error(
+      `parseCommentRules found unexpected type of configuration object`
+    )
+  }
+  for (const item of configObject) {
+    const itemParams: ICommentRule = parseCommentRule(item, default_mode)
+    itemArray.push(itemParams)
+  }
+  return itemArray
+}
+
+function parseAllRules(
   configObject: unknown,
   syncLabels: number
-): [IRuleItem[], IRuleItem[]] {
+): [ILabelRule[], ICommentRule[]] {
   if (configObject === null || typeof configObject !== 'object') {
-    throw Error(`found unexpected type of configuration object`)
+    throw Error(`parseAllRules found unexpected type of configuration object`)
   }
 
   for (const key in configObject) {
-    if (key === 'labels' || key === 'comments' || key === 'default-mode') {
-      continue
+    if (key !== 'labels' && key !== 'comments' && key !== 'default-mode') {
+      throw Error(`parseAllRules found unexpected field \`${key}\``)
     }
-    throw Error(`found unexpected field \`${key}\``)
   }
 
   const labelParamsObject = 'labels' in configObject ? configObject.labels : []
   const commentParamsObject =
     'comments' in configObject ? configObject.comments : []
-  let default_mode: IMode | undefined =
+  let labelDefaultMode: ILabelMode | undefined =
     'default-mode' in configObject
-      ? getModeFromObject(configObject['default-mode'])
+      ? parseLabelMode(configObject['default-mode'])
       : undefined
 
-  let labelParams: IRuleItem[] = []
-  let commentParams: IRuleItem[] = []
-
-  if (default_mode === undefined) {
+  if (labelDefaultMode === undefined) {
     if (syncLabels === 1) {
-      default_mode = {
+      labelDefaultMode = {
         add: true,
         remove: true
       }
     } else if (syncLabels === 0) {
-      default_mode = { add: true, remove: [] }
+      labelDefaultMode = { add: true, remove: [] }
     } else {
       throw Error(
-        `found unexpected value of syncLabels (${syncLabels}, should be 0 or 1)`
+        `parseAllRules found unexpected value of syncLabels (${syncLabels}, should be 0 or 1)`
       )
     }
   }
-  labelParams = getItemArrayFromObject(labelParamsObject, default_mode)
-  commentParams = getItemArrayFromObject(commentParamsObject, default_mode)
-  return [labelParams, commentParams]
+  return [
+    parseLabelRules(labelParamsObject, labelDefaultMode),
+    parseCommentRules(commentParamsObject, { type: 'add', event: true })
+  ]
 }
 
-function checkRegexes(body: string, regexes: string[]): boolean {
-  let matched
+function checkRegexes(
+  body: string,
+  regexes: string[]
+): RegExpMatchArray[] | false {
+  const matches: RegExpMatchArray[] = []
 
   // If several regex entries are provided we require all of them to match for the label to be applied.
   for (const regEx of regexes) {
     const isRegEx = regEx.match(/^\/(.+)\/(.*)$/)
-
-    if (isRegEx) {
-      matched = body.match(new RegExp(isRegEx[1], isRegEx[2]))
-    } else {
-      matched = body.match(regEx)
-    }
+    const matched = isRegEx
+      ? body.match(new RegExp(isRegEx[1], isRegEx[2]))
+      : body.match(regEx)
 
     if (!matched) {
       return false
     }
+    matches.push(matched)
   }
-  return true
-}
-
-function checkEvent(
-  event_name: ModeEvent,
-  mode: IMode,
-  type: 'add' | 'remove'
-): boolean {
-  const type_mode = mode[type]
-  return (
-    type_mode !== undefined &&
-    (type_mode === true || type_mode.includes(event_name))
-  )
+  return matches
 }
 
 function checkAuthorAssociation(
@@ -685,6 +867,54 @@ async function addComment(
   } catch (error) {
     core.warning(
       `Unable to add comment \`${body.split('\n').join('\\n')}\`. (${error})`
+    )
+  }
+}
+
+async function updateComment(
+  client: InstanceType<typeof GitHub>,
+  issue_number: number,
+  body: string
+): Promise<void> {
+  try {
+    const response = await client.rest.issues.updateComment({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      comment_id: issue_number,
+      body
+    })
+    core.debug(
+      `Update comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
+      }`
+    )
+  } catch (error) {
+    core.warning(
+      `Unable to update comment \`${body.split('\n').join('\\n')}\`. (${error})`
+    )
+  }
+}
+
+async function updateIssue(
+  client: InstanceType<typeof GitHub>,
+  issue_number: number,
+  body: string
+): Promise<void> {
+  try {
+    const response = await client.rest.issues.update({
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number,
+      body
+    })
+    core.debug(
+      `Update issue \`${body.split('\n').join('\\n')}\` status ${
+        response.status
+      }`
+    )
+  } catch (error) {
+    core.warning(
+      `Unable to update issue \`${body.split('\n').join('\\n')}\`. (${error})`
     )
   }
 }
