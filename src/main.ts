@@ -11,26 +11,48 @@ type ModeEvent =
   | 'push'
 
 interface ILabelMode {
+  // if matched && (~ === true || the triggered event in ~) => add
   add: ModeEvent[] | true
+
+  // if not matched && (~ === true || the triggered event in ~) => remove
   remove: ModeEvent[] | true
 }
 
 interface ICommentMode {
+  // add: add comment, update: update issue or comment
   type: 'add' | 'update'
+
+  // if matched && (~ === true || the triggered event in ~) => add or update
   event: ModeEvent[] | true
 }
 
 interface IRuleBase {
   [key: string]: unknown
+
+  // the representation of the rule
   name: string
+
+  // the content of the rule
+  //     for labels, it's the label name
+  //     for comments, it's the comment body
+  // if not provided (=== undefined), use `name` as the content
+  // if === '', not add label
   content?: string
+
+  // the regexes to match the issue/comment body
   regexes: string[]
+
+  // the author association to match
   author_association: string[]
+
+  // if some item in skip_if has been added, skip current item
   skip_if: string[]
 }
 
 interface ILabelRule extends IRuleBase {
   mode: ILabelMode
+
+  // if some item in remove_if has been added, remove current item, higher priority than mode.remove
   remove_if: string[]
 }
 
