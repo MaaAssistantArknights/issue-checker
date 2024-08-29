@@ -2,6 +2,7 @@ import * as core from '@actions/core'
 import * as github from '@actions/github'
 import { GitHub } from '@actions/github/lib/utils'
 import * as yaml from 'js-yaml'
+import * as cheerio from 'cheerio'
 
 type ModeEvent =
   | 'pull_request'
@@ -58,6 +59,9 @@ interface ILabelRule extends IRuleBase {
 
 interface ICommentRule extends IRuleBase {
   mode: ICommentMode
+
+  // the url snippets to match
+  urls?: string[]
 }
 
 interface IEventInfo {
@@ -165,7 +169,8 @@ async function run(): Promise<void> {
       const removeLabelItems = LabelAnalyzeResult[1]
 
       // comments to be added & updated
-      const [addCommentItems, updateCommentItems] = commentRuleAnalyze(
+      const [addCommentItems, updateCommentItems] = await commentRuleAnalyze(
+        client,
         commentParams,
         body,
         author_association,
@@ -225,12 +230,14 @@ async function run(): Promise<void> {
   }
 }
 
-function commentRuleAnalyze(
+const markdownParsedCache: Map<string, string> = new Map()
+async function commentRuleAnalyze(
+  client: InstanceType<typeof GitHub>,
   itemMap: ICommentRule[],
   issueContent: string,
   author_association: string,
   event_name: ModeEvent
-): [string[], string[]] {
+): Promise<[string[], string[]]> {
   const addItems: string[] = []
   const addItemNames: Set<string> = new Set()
   const updateItems: string[] = []
@@ -239,6 +246,7 @@ function commentRuleAnalyze(
     const item = itemParams.content ?? ''
     const itemName = itemParams.name
     const globs = itemParams.regexes
+    const urls = itemParams.urls
     const allowedAuthorAssociation = itemParams.author_association
     const mode = itemParams.mode
     const skipIf = itemParams.skip_if
@@ -260,8 +268,29 @@ function commentRuleAnalyze(
     }
 
     if (checkAuthorAssociation(author_association, allowedAuthorAssociation)) {
-      const matches = checkRegexes(issueContent, globs)
-      if (matches === false) {
+      if (Array.isArray(globs)) {
+        const matches = checkRegexes(issueContent, globs)
+        if (matches === false) {
+          continue
+        }
+      } else if (Array.isArray(urls)) {
+        if (!markdownParsedCache.has(issueContent)) {
+          const { data } = await client.rest.markdown.render({
+            text: issueContent,
+            mode: 'gfm',
+            context: `${github.context.repo.owner}/${github.context.repo.repo}`
+          })
+          markdownParsedCache.set(issueContent, data)
+        }
+        const $ = cheerio.load(markdownParsedCache.get(issueContent) as string)
+        if (
+          $('a[href*="/"]').filter((_, { attribs: { href } }) =>
+            urls.reduce((p, url) => p || href.includes(url), false)
+          ).length === 0
+        ) {
+          continue
+        }
+      } else {
         continue
       }
       // TODO item: "...${i,j}..." -> "...${matches[i][j]}..."

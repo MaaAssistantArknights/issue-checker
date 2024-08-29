@@ -26,6 +26,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 const core = __importStar(require("@actions/core"));
 const github = __importStar(require("@actions/github"));
 const yaml = __importStar(require("js-yaml"));
+const cheerio = __importStar(require("cheerio"));
 async function run() {
     try {
         // Configuration parameters
@@ -86,7 +87,7 @@ async function run() {
             let addLabelItems = LabelAnalyzeResult[0];
             const removeLabelItems = LabelAnalyzeResult[1];
             // comments to be added & updated
-            const [addCommentItems, updateCommentItems] = commentRuleAnalyze(commentParams, body, author_association, event_name);
+            const [addCommentItems, updateCommentItems] = await commentRuleAnalyze(client, commentParams, body, author_association, event_name);
             if (core.isDebug()) {
                 core.debug(`labels have been added: [${Array.from(issueLabels)}]`);
                 core.debug(`labels to be added: [${addLabelItems.toString()}]`);
@@ -135,7 +136,8 @@ async function run() {
         }
     }
 }
-function commentRuleAnalyze(itemMap, issueContent, author_association, event_name) {
+const markdownParsedCache = new Map();
+async function commentRuleAnalyze(client, itemMap, issueContent, author_association, event_name) {
     const addItems = [];
     const addItemNames = new Set();
     const updateItems = [];
@@ -143,6 +145,7 @@ function commentRuleAnalyze(itemMap, issueContent, author_association, event_nam
         const item = itemParams.content ?? '';
         const itemName = itemParams.name;
         const globs = itemParams.regexes;
+        const urls = itemParams.urls;
         const allowedAuthorAssociation = itemParams.author_association;
         const mode = itemParams.mode;
         const skipIf = itemParams.skip_if;
@@ -159,8 +162,27 @@ function commentRuleAnalyze(itemMap, issueContent, author_association, event_nam
             continue;
         }
         if (checkAuthorAssociation(author_association, allowedAuthorAssociation)) {
-            const matches = checkRegexes(issueContent, globs);
-            if (matches === false) {
+            if (Array.isArray(globs)) {
+                const matches = checkRegexes(issueContent, globs);
+                if (matches === false) {
+                    continue;
+                }
+            }
+            else if (Array.isArray(urls)) {
+                if (!markdownParsedCache.has(issueContent)) {
+                    const { data } = await client.rest.markdown.render({
+                        text: issueContent,
+                        mode: 'gfm',
+                        context: `${github.context.repo.owner}/${github.context.repo.repo}`
+                    });
+                    markdownParsedCache.set(issueContent, data);
+                }
+                const $ = cheerio.load(markdownParsedCache.get(issueContent));
+                if ($('a[href*="/"]').filter((_, { attribs: { href } }) => urls.reduce((p, url) => p || href.includes(url), false)).length === 0) {
+                    continue;
+                }
+            }
+            else {
                 continue;
             }
             // TODO item: "...${i,j}..." -> "...${matches[i][j]}..."

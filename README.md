@@ -34,6 +34,12 @@ comments:
     "You have some files that did not upload successfully, please re-upload them."
   regexes:
     'Uploading'
+- name: comments-2
+  # Comment the content below if issue contains the links that includes `example.com/asd`
+  content:
+    There are unconfirmed links, please visit with caution.
+  urls:
+    - example.com/asd
 ```
 
 The format of the configuration file is shown below.
@@ -107,4 +113,3 @@ Various inputs are defined in [`action.yml`](action.yml) to let you configure th
 | `sync-labels` | Whether or not to remove labels when not match | 1 |
 | `include-title` | Whether or not the title participate in matching | 0 |
 | `not-before` | Any issues prior to this timestamp will be ignored (blank to handle all issues) | N/A |
-
