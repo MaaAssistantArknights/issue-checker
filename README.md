@@ -35,10 +35,18 @@ comments:
   regexes:
     'Uploading'
 - name: comments-2
-  # Comment the content below if issue contains the links that includes `example.com/asd`
+  # Comment the content below if issue contains the links that include snippets listed in url_list
   content:
     There are unconfirmed links, please visit with caution.
-  urls:
+  url_mode: deny
+  url_list:
+    - example.com/asd
+- name: comments-3
+  # Comment the content below if issue contains the links that don't include any snippets listed in url_list
+  content:
+    There are unconfirmed links, please visit with caution.
+  url_mode: allow_only
+  url_list:
     - example.com/asd
 ```
 
@@ -55,6 +63,9 @@ labels:                # optional, choices [labels, comments]
   content: string      # optional, default ${name}
   regexes:             # optional, required if ${author_association} undefined
     string[] | string
+  url_mode:            # optional, ignored if ${regexes} exists
+    allow_only | deny
+  url_list: string[]   # optional, ignored if ${regexes} exists
   author_association:  # optional, required if ${regexes} undefined
     string
   remove-if:           # optional

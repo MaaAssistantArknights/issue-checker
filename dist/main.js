@@ -145,7 +145,8 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
         const item = itemParams.content ?? '';
         const itemName = itemParams.name;
         const globs = itemParams.regexes;
-        const urls = itemParams.urls;
+        const urlList = itemParams.url_list;
+        const urlMode = itemParams.url_mode;
         const allowedAuthorAssociation = itemParams.author_association;
         const mode = itemParams.mode;
         const skipIf = itemParams.skip_if;
@@ -168,7 +169,8 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
                     continue;
                 }
             }
-            else if (Array.isArray(urls)) {
+            else if (Array.isArray(urlList) &&
+                (urlMode === 'allow_only' || urlMode === 'deny')) {
                 if (!markdownParsedCache.has(issueContent)) {
                     const { data } = await client.rest.markdown.render({
                         text: issueContent,
@@ -177,8 +179,18 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
                     });
                     markdownParsedCache.set(issueContent, data);
                 }
-                const $ = cheerio.load(markdownParsedCache.get(issueContent));
-                if ($('a[href*="/"]').filter((_, { attribs: { href } }) => urls.reduce((p, url) => p || href.includes(url), false)).length === 0) {
+                const links = cheerio.load(markdownParsedCache.get(issueContent))('a[href*="/"]');
+                const hasLinks = links.length > 0;
+                if (!hasLinks) {
+                    continue;
+                }
+                const linksHitUrlList = links
+                    .map((_, { attribs: { href } }) => urlList.reduce((p, url) => p || href.includes(url), false))
+                    .toArray();
+                const hasLinksHitUrlList = linksHitUrlList.some(bool => bool);
+                const hasLinksNotHitUrlList = linksHitUrlList.some(bool => !bool);
+                if ((urlMode === 'allow_only' && !hasLinksNotHitUrlList) ||
+                    (urlMode === 'deny' && !hasLinksHitUrlList)) {
                     continue;
                 }
             }
