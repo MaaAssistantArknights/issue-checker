@@ -64,7 +64,7 @@ labels:                # optional, choices [labels, comments]
   regexes:             # optional, required if ${author_association} undefined
     string[] | string
   url_mode:            # optional, ignored if ${regexes} exists
-    allow_only | deny
+    "allow_only" | "deny"
   url_list: string[]   # optional, ignored if ${regexes} exists
   author_association:  # optional, required if ${regexes} undefined
     string
