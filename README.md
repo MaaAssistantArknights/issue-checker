@@ -34,6 +34,20 @@ comments:
     "You have some files that did not upload successfully, please re-upload them."
   regexes:
     'Uploading'
+- name: comments-2
+  # Comment the content below if issue contains the links that include snippets listed in url_list
+  content:
+    There are unconfirmed links, please visit with caution.
+  url_mode: deny
+  url_list:
+    - example.com/asd
+- name: comments-3
+  # Comment the content below if issue contains the links that don't include any snippets listed in url_list
+  content:
+    There are unconfirmed links, please visit with caution.
+  url_mode: allow_only
+  url_list:
+    - example.com/asd
 ```
 
 The format of the configuration file is shown below.
@@ -49,6 +63,9 @@ labels:                # optional, choices [labels, comments]
   content: string      # optional, default ${name}
   regexes:             # optional, required if ${author_association} undefined
     string[] | string
+  url_mode:            # optional, ignored if ${regexes} exists
+    "allow_only" | "deny"
+  url_list: string[]   # optional, ignored if ${regexes} exists
   author_association:  # optional, required if ${regexes} undefined
     string
   remove-if:           # optional
@@ -107,4 +124,3 @@ Various inputs are defined in [`action.yml`](action.yml) to let you configure th
 | `sync-labels` | Whether or not to remove labels when not match | 1 |
 | `include-title` | Whether or not the title participate in matching | 0 |
 | `not-before` | Any issues prior to this timestamp will be ignored (blank to handle all issues) | N/A |
-
