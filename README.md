@@ -102,7 +102,7 @@ jobs:
       pull-requests: write
     runs-on: ubuntu-latest
     steps:
-    - uses: MaaAssistantArknights/issue-checker@v1.12
+    - uses: MaaAssistantArknights/issue-checker@v1.13
       with:
         repo-token: "${{ secrets.GITHUB_TOKEN }}"
         configuration-path: .github/issue-checker.yml
