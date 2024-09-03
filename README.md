@@ -40,14 +40,15 @@ comments:
     There are unconfirmed links, please visit with caution.
   url_mode: deny
   url_list:
-    - example.com/asd
+    - example\.com/asd # regex
 - name: comments-3
   # Comment the content below if issue contains the links that don't include any snippets listed in url_list
   content:
     There are unconfirmed links, please visit with caution.
   url_mode: allow_only
-  url_list:
-    - example.com/asd
+  url_list: # You can use any string property of URL: "hash" | "host" | "hostname" | "href" | "origin" | "password" | "pathname" | "port" | "protocol" | "search" | "username"
+    - hostname: (?:^|.+\.)github\.com$
+      pathname: ^/exapmle-user/example-repo
 ```
 
 The format of the configuration file is shown below.
@@ -65,7 +66,8 @@ labels:                # optional, choices [labels, comments]
     string[] | string
   url_mode:            # optional, ignored if ${regexes} exists
     "allow_only" | "deny"
-  url_list: string[]   # optional, ignored if ${regexes} exists
+  url_list:            # optional, ignored if ${regexes} exists
+    (string | Partial<Pick<URL, { [K in keyof URL]: URL[K] extends string ? K : never; }[keyof URL]>>)[]
   author_association:  # optional, required if ${regexes} undefined
     string
   remove-if:           # optional

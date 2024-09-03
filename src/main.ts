@@ -60,8 +60,17 @@ interface ILabelRule extends IRuleBase {
 interface ICommentRule extends IRuleBase {
   mode: ICommentMode
 
-  // the url snippets to match
-  url_list?: string[]
+  url_list?: (
+    | string
+    | Partial<
+        Pick<
+          URL,
+          {
+            [K in keyof URL]: URL[K] extends string ? K : never
+          }[keyof URL]
+        >
+      >
+  )[]
   url_mode?: 'allow_only' | 'deny'
 }
 
@@ -287,24 +296,53 @@ async function commentRuleAnalyze(
           })
           markdownParsedCache.set(issueContent, data)
         }
-        const links = cheerio.load(
+        const linkElements = cheerio.load(
           markdownParsedCache.get(issueContent) as string
         )('a[href*="/"]')
-        const hasLinks = links.length > 0
+        const hasLinks = linkElements.length > 0
         if (!hasLinks) {
           continue
         }
-        const linksHitUrlList = links
-          .map((_, { attribs: { href } }) =>
-            urlList.reduce((p, url) => p || href.includes(url), false)
-          )
-          .toArray()
-        const hasLinksHitUrlList = linksHitUrlList.some(bool => bool)
-        const hasLinksNotHitUrlList = linksHitUrlList.some(bool => !bool)
-        if (
-          (urlMode === 'allow_only' && !hasLinksNotHitUrlList) ||
-          (urlMode === 'deny' && !hasLinksHitUrlList)
-        ) {
+        let flag = false
+        for (const link of new Set(
+          linkElements.map((_, { attribs: { href } }) => href)
+        )) {
+          for (const pattern of urlList) {
+            if (typeof pattern === 'string') {
+              const result = RegExp(pattern).test(link)
+              if (
+                (urlMode === 'allow_only' && !result) ||
+                (urlMode === 'deny' && result)
+              ) {
+                flag = true
+              }
+            } else {
+              const url = new URL(link)
+              for (const [k, v] of Object.entries(pattern)) {
+                const result = RegExp(v).test(url[k as keyof typeof pattern])
+                if (
+                  (urlMode === 'allow_only' && !result) ||
+                  (urlMode === 'deny' && result)
+                ) {
+                  flag = true
+                  break
+                }
+              }
+            }
+            if (flag) {
+              if (core.isDebug()) {
+                core.debug(
+                  `link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, flag changed to \`true\`, no more testing of remaining links`
+                )
+              }
+              break
+            }
+          }
+          if (flag) {
+            break
+          }
+        }
+        if (!flag) {
           continue
         }
       } else {
