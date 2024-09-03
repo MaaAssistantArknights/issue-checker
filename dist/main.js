@@ -187,7 +187,7 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
                 let flag = false;
                 for (const link of new Set(linkElements.map((_, { attribs: { href } }) => href))) {
                     for (const pattern of urlList) {
-                        if (typeof pattern === "string") {
+                        if (typeof pattern === 'string') {
                             const result = RegExp(pattern).test(link);
                             if ((urlMode === 'allow_only' && !result) ||
                                 (urlMode === 'deny' && result)) {
