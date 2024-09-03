@@ -279,7 +279,7 @@ async function commentRuleAnalyze(
     }
 
     if (checkAuthorAssociation(author_association, allowedAuthorAssociation)) {
-      if (Array.isArray(globs)) {
+      if (globs.length > 0) {
         const matches = checkRegexes(issueContent, globs)
         if (matches === false) {
           continue
@@ -706,9 +706,11 @@ function parseRule(
   const is_str = (x: unknown): boolean => typeof x === 'string'
   const is_strarr = (x: unknown): boolean => Array.isArray(x)
   const is_null = (x: unknown): boolean => x === null
+  const is_undefined = (x: unknown): boolean => x === undefined
   const nopred = (x: unknown): unknown => x
   const pred_2arr = (x: unknown): unknown[] => [x]
   const pred_2emptystr = (): string => ''
+  const pred_2emptyarr = () => []
 
   const str2str: ICondPred = {
     cond: is_str,
@@ -726,13 +728,23 @@ function parseRule(
     cond: is_null,
     pred: pred_2emptystr
   }
+  const undefined2undefined: ICondPred = {
+    cond: is_undefined,
+    pred: nopred
+  }
+  const undefined2emptyarr: ICondPred = {
+    cond: is_undefined,
+    pred: pred_2emptyarr
+  }
 
   const configMap: { [key: string]: ICondPred[] } = {
     ...appendConfigMap,
     name: [str2str],
     content: [str2str, null2str],
     author_association: [str2strarr, strarr2strarr],
-    regexes: [str2strarr, strarr2strarr],
+    regexes: [str2strarr, strarr2strarr, undefined2emptyarr],
+    url_mode: [str2strarr, strarr2strarr, undefined2undefined],
+    url_list: [str2strarr, strarr2strarr, undefined2undefined],
     skip_if: [str2strarr, strarr2strarr]
   }
   const itemParams: IRuleBase = {

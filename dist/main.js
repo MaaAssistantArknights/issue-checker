@@ -163,7 +163,7 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
             continue;
         }
         if (checkAuthorAssociation(author_association, allowedAuthorAssociation)) {
-            if (Array.isArray(globs)) {
+            if (globs.length > 0) {
                 const matches = checkRegexes(issueContent, globs);
                 if (matches === false) {
                     continue;
@@ -510,9 +510,11 @@ function parseRule(item, appendConfigMap, appendItemParams) {
     const is_str = (x) => typeof x === 'string';
     const is_strarr = (x) => Array.isArray(x);
     const is_null = (x) => x === null;
+    const is_undefined = (x) => x === undefined;
     const nopred = (x) => x;
     const pred_2arr = (x) => [x];
     const pred_2emptystr = () => '';
+    const pred_2emptyarr = () => [];
     const str2str = {
         cond: is_str,
         pred: nopred
@@ -529,12 +531,22 @@ function parseRule(item, appendConfigMap, appendItemParams) {
         cond: is_null,
         pred: pred_2emptystr
     };
+    const undefined2undefined = {
+        cond: is_undefined,
+        pred: nopred
+    };
+    const undefined2emptyarr = {
+        cond: is_undefined,
+        pred: pred_2emptyarr
+    };
     const configMap = {
         ...appendConfigMap,
         name: [str2str],
         content: [str2str, null2str],
         author_association: [str2strarr, strarr2strarr],
-        regexes: [str2strarr, strarr2strarr],
+        regexes: [str2strarr, strarr2strarr, undefined2emptyarr],
+        url_mode: [str2strarr, strarr2strarr, undefined2undefined],
+        url_list: [str2strarr, strarr2strarr, undefined2undefined],
         skip_if: [str2strarr, strarr2strarr]
     };
     const itemParams = {
