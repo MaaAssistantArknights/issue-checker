@@ -164,6 +164,9 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
         }
         if (checkAuthorAssociation(author_association, allowedAuthorAssociation)) {
             if (globs.length > 0) {
+                if (core.isDebug()) {
+                    core.debug(`globs.length > 0`);
+                }
                 const matches = checkRegexes(issueContent, globs);
                 if (matches === false) {
                     continue;
@@ -171,6 +174,9 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
             }
             else if (Array.isArray(urlList) &&
                 (urlMode === 'allow_only' || urlMode === 'deny')) {
+                if (core.isDebug()) {
+                    core.debug(`url mode`);
+                }
                 if (!markdownParsedCache.has(issueContent)) {
                     const { data } = await client.rest.markdown.render({
                         text: issueContent,
@@ -185,6 +191,11 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
                     continue;
                 }
                 let flag = false;
+                if (core.isDebug()) {
+                    core.debug(`links: ${JSON.stringify([
+                        ...new Set(linkElements.map((_, { attribs: { href } }) => href))
+                    ])}`);
+                }
                 for (const link of new Set(linkElements.map((_, { attribs: { href } }) => href))) {
                     for (const pattern of urlList) {
                         if (typeof pattern === 'string') {
