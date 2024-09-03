@@ -699,6 +699,9 @@ function parseRule(
   appendConfigMap: { [key: string]: ICondPred[] },
   appendItemParams: { [key: string]: unknown }
 ): IRuleBase {
+  if (core.isDebug()) {
+    core.debug(`Input rule: ${JSON.stringify(item)}`)
+  }
   if (item === null || typeof item !== 'object') {
     throw Error(`parseRule found unexpected type of configuration object`)
   }
@@ -775,6 +778,9 @@ function parseRule(
     throw Error(`some item's name is missing`)
   }
   itemParams.content ??= itemParams.name
+  if (core.isDebug()) {
+    core.debug(`Parsed rule: ${JSON.stringify(itemParams)}`)
+  }
   return itemParams
 }
 

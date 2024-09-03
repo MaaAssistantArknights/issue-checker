@@ -511,6 +511,9 @@ function parseCommentRule(item, default_mode) {
     return parseRule(item, { mode: [mode_cond_pred] }, { mode: default_mode });
 }
 function parseRule(item, appendConfigMap, appendItemParams) {
+    if (core.isDebug()) {
+        core.debug(`Input rule: ${JSON.stringify(item)}`);
+    }
     if (item === null || typeof item !== 'object') {
         throw Error(`parseRule found unexpected type of configuration object`);
     }
@@ -585,6 +588,9 @@ function parseRule(item, appendConfigMap, appendItemParams) {
         throw Error(`some item's name is missing`);
     }
     itemParams.content ??= itemParams.name;
+    if (core.isDebug()) {
+        core.debug(`Parsed rule: ${JSON.stringify(itemParams)}`);
+    }
     return itemParams;
 }
 function getModeEvent(modeItem) {
