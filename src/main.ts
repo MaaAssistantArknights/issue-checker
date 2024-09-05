@@ -320,42 +320,76 @@ async function commentRuleAnalyze(
             ])}`
           )
         }
-        for (const link of new Set(
-          linkElements.map((_, { attribs: { href } }) => href)
-        )) {
-          for (const pattern of urlList) {
-            if (typeof pattern === 'string') {
-              const result = RegExp(pattern).test(link)
-              if (
-                (urlMode === 'allow_only' && !result) ||
-                (urlMode === 'deny' && result)
-              ) {
-                flag = true
-              }
-            } else {
-              const url = new URL(link)
-              for (const [k, v] of Object.entries(pattern)) {
-                const result = RegExp(v).test(url[k as keyof typeof pattern])
-                if (
-                  (urlMode === 'allow_only' && !result) ||
-                  (urlMode === 'deny' && result)
-                ) {
-                  flag = true
-                  break
+        if (core.isDebug()) {
+          core.debug(`urlMode is ${urlMode}`)
+        }
+        if (urlMode === 'allow_only') {
+          let localFlag = true
+          for (const link of new Set(
+            linkElements.map((_, { attribs: { href } }) => href)
+          )) {
+            for (const pattern of urlList) {
+              if (typeof pattern === 'string') {
+                const result = RegExp(pattern).test(link)
+                if (result) {
+                  localFlag = false
+                }
+              } else {
+                const url = new URL(link)
+                for (const [k, v] of Object.entries(pattern)) {
+                  const result = RegExp(v).test(url[k as keyof typeof pattern])
+                  if (result) {
+                    localFlag = false
+                  }
                 }
               }
+              if (!localFlag) {
+                if (core.isDebug()) {
+                  core.debug(
+                    `link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, skip this link`
+                  )
+                }
+                break
+              }
             }
-            if (flag) {
+            if (localFlag) {
+              flag = true
               if (core.isDebug()) {
                 core.debug(
-                  `link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, flag changed to \`true\`, no more testing of remaining links`
+                  `link \`${link}\` does not hit any pattern under mode "${urlMode}", flag changed to \`true\`, no more testing of remaining links`
                 )
               }
               break
             }
           }
-          if (flag) {
-            break
+        } else {
+          for (const link of new Set(
+            linkElements.map((_, { attribs: { href } }) => href)
+          )) {
+            for (const pattern of urlList) {
+              if (typeof pattern === 'string') {
+                const result = RegExp(pattern).test(link)
+                if (result) {
+                  flag = true
+                }
+              } else {
+                const url = new URL(link)
+                for (const [k, v] of Object.entries(pattern)) {
+                  const result = RegExp(v).test(url[k as keyof typeof pattern])
+                  if (result) {
+                    flag = true
+                  }
+                }
+              }
+              if (flag) {
+                if (core.isDebug()) {
+                  core.debug(
+                    `link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, flag changed to \`true\`, no more testing of remaining links`
+                  )
+                }
+                break
+              }
+            }
           }
         }
         if (!flag) {
