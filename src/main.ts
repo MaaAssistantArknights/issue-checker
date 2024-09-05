@@ -63,13 +63,13 @@ interface ICommentRule extends IRuleBase {
   url_list?: (
     | string
     | Partial<
-      Pick<
-        URL,
-        {
-          [K in keyof URL]: URL[K] extends string ? K : never
-        }[keyof URL]
+        Pick<
+          URL,
+          {
+            [K in keyof URL]: URL[K] extends string ? K : never
+          }[keyof URL]
+        >
       >
-    >
   )[]
   url_mode?: 'allow_only' | 'deny'
 }
@@ -338,13 +338,15 @@ async function commentRuleAnalyze(
                 const url = new URL(link)
                 let result = true
                 for (const [k, v] of Object.entries(pattern)) {
-                  const localResult = RegExp(v).test(url[k as keyof typeof pattern])
+                  const localResult = RegExp(v).test(
+                    url[k as keyof typeof pattern]
+                  )
                   if (!localResult) {
                     result = false
-                    break;
+                    break
                   }
                 }
-                if (!result) {
+                if (result) {
                   localFlag = false
                 }
               }
@@ -379,11 +381,18 @@ async function commentRuleAnalyze(
                 }
               } else {
                 const url = new URL(link)
+                let result = true
                 for (const [k, v] of Object.entries(pattern)) {
-                  const result = RegExp(v).test(url[k as keyof typeof pattern])
-                  if (result) {
-                    flag = true
+                  const localResult = RegExp(v).test(
+                    url[k as keyof typeof pattern]
+                  )
+                  if (!localResult) {
+                    result = false
+                    break
                   }
+                }
+                if (result) {
+                  flag = true
                 }
               }
               if (flag) {
@@ -1038,7 +1047,8 @@ async function addComment(
       body
     })
     core.debug(
-      `Add comment \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Add comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
@@ -1061,7 +1071,8 @@ async function updateComment(
       body
     })
     core.debug(
-      `Update comment \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Update comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
@@ -1084,7 +1095,8 @@ async function updateIssue(
       body
     })
     core.debug(
-      `Update issue \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Update issue \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {

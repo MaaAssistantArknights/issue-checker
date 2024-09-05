@@ -221,11 +221,16 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
                             }
                             else {
                                 const url = new URL(link);
+                                let result = true;
                                 for (const [k, v] of Object.entries(pattern)) {
-                                    const result = RegExp(v).test(url[k]);
-                                    if (result) {
-                                        localFlag = false;
+                                    const localResult = RegExp(v).test(url[k]);
+                                    if (!localResult) {
+                                        result = false;
+                                        break;
                                     }
+                                }
+                                if (result) {
+                                    localFlag = false;
                                 }
                             }
                             if (!localFlag) {
@@ -255,11 +260,16 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
                             }
                             else {
                                 const url = new URL(link);
+                                let result = true;
                                 for (const [k, v] of Object.entries(pattern)) {
-                                    const result = RegExp(v).test(url[k]);
-                                    if (result) {
-                                        flag = true;
+                                    const localResult = RegExp(v).test(url[k]);
+                                    if (!localResult) {
+                                        result = false;
+                                        break;
                                     }
+                                }
+                                if (result) {
+                                    flag = true;
                                 }
                             }
                             if (flag) {
