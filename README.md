@@ -66,7 +66,7 @@ labels:                # optional, choices [labels, comments]
     string[] | string
   url_mode:            # optional, ignored if ${regexes} exists
     "allow_only" | "deny"
-  url_list:            # optional, ignored if ${regexes} exists
+  url_list:            # optional, ignored if ${regexes} exists, keeps in mind that if `search` has valud that is must be started with `?` which needs to be escaped
     (string | Partial<Pick<URL, { [K in keyof URL]: URL[K] extends string ? K : never; }[keyof URL]>>)[]
   author_association:  # optional, required if ${regexes} undefined
     string
