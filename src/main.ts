@@ -252,7 +252,7 @@ async function commentRuleAnalyze(
   const addItemNames: Set<string> = new Set()
   const updateItems: string[] = []
 
-  console.log("itemMap:", itemMap) // DEBUG
+  core.info("itemMap: " + JSON.stringify(itemMap)) // DEBUG
   for (const itemParams of itemMap) {
     const item = itemParams.content ?? ''
     const itemName = itemParams.name
@@ -795,7 +795,7 @@ function parseRule(
   if (core.isDebug()) {
     core.debug(`Parsed rule: ${JSON.stringify(itemParams)}`)
   }
-  console.log("Parsed rule:", itemParams) // DEBUG
+  core.info("Parsed rule: " + JSON.stringify(itemParams)) // DEBUG
   return itemParams
 }
 
@@ -854,7 +854,7 @@ function parseAllRules(
       throw Error(`parseAllRules found unexpected field \`${key}\``)
     }
   }
-  console.log("configObject:", configObject) // DEBUG
+  core.info("configObject: " + JSON.stringify(configObject)) // DEBUG
 
   const labelParamsObject = 'labels' in configObject ? configObject.labels : []
   const commentParamsObject =
