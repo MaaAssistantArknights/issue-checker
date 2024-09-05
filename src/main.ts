@@ -795,6 +795,7 @@ function parseRule(
   if (core.isDebug()) {
     core.debug(`Parsed rule: ${JSON.stringify(itemParams)}`)
   }
+  console.log("Parsed rule:", itemParams) // DEBUG
   return itemParams
 }
 
@@ -853,6 +854,7 @@ function parseAllRules(
       throw Error(`parseAllRules found unexpected field \`${key}\``)
     }
   }
+  console.log("configObject:", configObject) // DEBUG
 
   const labelParamsObject = 'labels' in configObject ? configObject.labels : []
   const commentParamsObject =
