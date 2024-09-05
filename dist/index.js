@@ -555,10 +555,6 @@ function parseRule(item, appendConfigMap, appendItemParams) {
         cond: is_null,
         pred: pred_2emptystr
     };
-    const undefined2undefined = {
-        cond: is_undefined,
-        pred: nopred
-    };
     const undefined2emptyarr = {
         cond: is_undefined,
         pred: pred_2emptyarr
@@ -569,8 +565,8 @@ function parseRule(item, appendConfigMap, appendItemParams) {
         content: [str2str, null2str],
         author_association: [str2strarr, strarr2strarr],
         regexes: [str2strarr, strarr2strarr, undefined2emptyarr],
-        url_mode: [str2strarr, strarr2strarr, undefined2undefined],
-        url_list: [str2strarr, strarr2strarr, undefined2undefined],
+        url_mode: [str2str],
+        url_list: [str2strarr, strarr2strarr],
         skip_if: [str2strarr, strarr2strarr]
     };
     const itemParams = {

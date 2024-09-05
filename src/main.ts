@@ -63,13 +63,13 @@ interface ICommentRule extends IRuleBase {
   url_list?: (
     | string
     | Partial<
-      Pick<
-        URL,
-        {
-          [K in keyof URL]: URL[K] extends string ? K : never
-        }[keyof URL]
+        Pick<
+          URL,
+          {
+            [K in keyof URL]: URL[K] extends string ? K : never
+          }[keyof URL]
+        >
       >
-    >
   )[]
   url_mode?: 'allow_only' | 'deny'
 }
@@ -999,7 +999,8 @@ async function addComment(
       body
     })
     core.debug(
-      `Add comment \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Add comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
@@ -1022,7 +1023,8 @@ async function updateComment(
       body
     })
     core.debug(
-      `Update comment \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Update comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
@@ -1045,7 +1047,8 @@ async function updateIssue(
       body
     })
     core.debug(
-      `Update issue \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Update issue \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
