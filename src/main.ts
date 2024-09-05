@@ -63,13 +63,13 @@ interface ICommentRule extends IRuleBase {
   url_list?: (
     | string
     | Partial<
-        Pick<
-          URL,
-          {
-            [K in keyof URL]: URL[K] extends string ? K : never
-          }[keyof URL]
-        >
+      Pick<
+        URL,
+        {
+          [K in keyof URL]: URL[K] extends string ? K : never
+        }[keyof URL]
       >
+    >
   )[]
   url_mode?: 'allow_only' | 'deny'
 }
@@ -747,10 +747,6 @@ function parseRule(
     cond: is_null,
     pred: pred_2emptystr
   }
-  const undefined2undefined: ICondPred = {
-    cond: is_undefined,
-    pred: nopred
-  }
   const undefined2emptyarr: ICondPred = {
     cond: is_undefined,
     pred: pred_2emptyarr
@@ -762,8 +758,8 @@ function parseRule(
     content: [str2str, null2str],
     author_association: [str2strarr, strarr2strarr],
     regexes: [str2strarr, strarr2strarr, undefined2emptyarr],
-    url_mode: [str2strarr, strarr2strarr, undefined2undefined],
-    url_list: [str2strarr, strarr2strarr, undefined2undefined],
+    url_mode: [str2str],
+    url_list: [str2strarr, strarr2strarr],
     skip_if: [str2strarr, strarr2strarr]
   }
   const itemParams: IRuleBase = {
@@ -1003,8 +999,7 @@ async function addComment(
       body
     })
     core.debug(
-      `Add comment \`${body.split('\n').join('\\n')}\` status ${
-        response.status
+      `Add comment \`${body.split('\n').join('\\n')}\` status ${response.status
       }`
     )
   } catch (error) {
@@ -1027,8 +1022,7 @@ async function updateComment(
       body
     })
     core.debug(
-      `Update comment \`${body.split('\n').join('\\n')}\` status ${
-        response.status
+      `Update comment \`${body.split('\n').join('\\n')}\` status ${response.status
       }`
     )
   } catch (error) {
@@ -1051,8 +1045,7 @@ async function updateIssue(
       body
     })
     core.debug(
-      `Update issue \`${body.split('\n').join('\\n')}\` status ${
-        response.status
+      `Update issue \`${body.split('\n').join('\\n')}\` status ${response.status
       }`
     )
   } catch (error) {
