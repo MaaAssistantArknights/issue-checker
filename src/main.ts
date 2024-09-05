@@ -63,13 +63,13 @@ interface ICommentRule extends IRuleBase {
   url_list?: (
     | string
     | Partial<
-      Pick<
-        URL,
-        {
-          [K in keyof URL]: URL[K] extends string ? K : never
-        }[keyof URL]
+        Pick<
+          URL,
+          {
+            [K in keyof URL]: URL[K] extends string ? K : never
+          }[keyof URL]
+        >
       >
-    >
   )[]
   url_mode?: 'allow_only' | 'deny'
 }
@@ -252,7 +252,9 @@ async function commentRuleAnalyze(
   const addItemNames: Set<string> = new Set()
   const updateItems: string[] = []
 
-  core.debug("itemMap: " + JSON.stringify(itemMap)) // DEBUG
+  if (core.isDebug()) {
+    core.debug('itemMap: ' + JSON.stringify(itemMap))
+  }
   for (const itemParams of itemMap) {
     const item = itemParams.content ?? ''
     const itemName = itemParams.name
@@ -853,7 +855,9 @@ function parseAllRules(
       throw Error(`parseAllRules found unexpected field \`${key}\``)
     }
   }
-  core.debug("configObject: " + JSON.stringify(configObject)) // DEBUG
+  if (core.isDebug()) {
+    core.debug('configObject: ' + JSON.stringify(configObject))
+  }
 
   const labelParamsObject = 'labels' in configObject ? configObject.labels : []
   const commentParamsObject =
@@ -999,7 +1003,8 @@ async function addComment(
       body
     })
     core.debug(
-      `Add comment \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Add comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
@@ -1022,7 +1027,8 @@ async function updateComment(
       body
     })
     core.debug(
-      `Update comment \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Update comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
@@ -1045,7 +1051,8 @@ async function updateIssue(
       body
     })
     core.debug(
-      `Update issue \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Update issue \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {

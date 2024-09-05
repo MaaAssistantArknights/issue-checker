@@ -141,6 +141,9 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
     const addItems = [];
     const addItemNames = new Set();
     const updateItems = [];
+    if (core.isDebug()) {
+        core.debug('itemMap: ' + JSON.stringify(itemMap));
+    }
     for (const itemParams of itemMap) {
         const item = itemParams.content ?? '';
         const itemName = itemParams.name;
@@ -165,7 +168,7 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
         if (checkAuthorAssociation(author_association, allowedAuthorAssociation)) {
             if (globs.length > 0) {
                 if (core.isDebug()) {
-                    core.debug(`globs.length > 0`);
+                    core.debug(`globs.length > 0: ${JSON.stringify(globs)}`);
                 }
                 const matches = checkRegexes(issueContent, globs);
                 if (matches === false) {
@@ -636,6 +639,9 @@ function parseAllRules(configObject, syncLabels) {
         if (key !== 'labels' && key !== 'comments' && key !== 'default-mode') {
             throw Error(`parseAllRules found unexpected field \`${key}\``);
         }
+    }
+    if (core.isDebug()) {
+        core.debug('configObject: ' + JSON.stringify(configObject));
     }
     const labelParamsObject = 'labels' in configObject ? configObject.labels : [];
     const commentParamsObject = 'comments' in configObject ? configObject.comments : [];
