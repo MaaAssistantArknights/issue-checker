@@ -252,6 +252,7 @@ async function commentRuleAnalyze(
   const addItemNames: Set<string> = new Set()
   const updateItems: string[] = []
 
+  console.log("itemMap:", itemMap) // DEBUG
   for (const itemParams of itemMap) {
     const item = itemParams.content ?? ''
     const itemName = itemParams.name
