@@ -1,4 +1,4 @@
-name: 'Issue Checker'
+name: 'Issue Checker DEBUG'
 description: 'Labels and comments to issues automatically based on their body'
 author: 'zzyyyl'
 

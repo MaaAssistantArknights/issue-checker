@@ -148,6 +148,9 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
     const addItems = [];
     const addItemNames = new Set();
     const updateItems = [];
+    if (core.isDebug()) {
+        core.debug('itemMap: ' + JSON.stringify(itemMap));
+    }
     for (const itemParams of itemMap) {
         const item = itemParams.content ?? '';
         const itemName = itemParams.name;
@@ -172,7 +175,7 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
         if (checkAuthorAssociation(author_association, allowedAuthorAssociation)) {
             if (globs.length > 0) {
                 if (core.isDebug()) {
-                    core.debug(`globs.length > 0`);
+                    core.debug(`globs.length > 0: ${JSON.stringify(globs)}`);
                 }
                 const matches = checkRegexes(issueContent, globs);
                 if (matches === false) {
@@ -203,35 +206,79 @@ async function commentRuleAnalyze(client, itemMap, issueContent, author_associat
                         ...new Set(linkElements.map((_, { attribs: { href } }) => href))
                     ])}`);
                 }
-                for (const link of new Set(linkElements.map((_, { attribs: { href } }) => href))) {
-                    for (const pattern of urlList) {
-                        if (typeof pattern === 'string') {
-                            const result = RegExp(pattern).test(link);
-                            if ((urlMode === 'allow_only' && !result) ||
-                                (urlMode === 'deny' && result)) {
-                                flag = true;
-                            }
-                        }
-                        else {
-                            const url = new URL(link);
-                            for (const [k, v] of Object.entries(pattern)) {
-                                const result = RegExp(v).test(url[k]);
-                                if ((urlMode === 'allow_only' && !result) ||
-                                    (urlMode === 'deny' && result)) {
-                                    flag = true;
-                                    break;
+                if (core.isDebug()) {
+                    core.debug(`urlMode is ${urlMode}`);
+                }
+                if (urlMode === 'allow_only') {
+                    let localFlag = true;
+                    for (const link of new Set(linkElements.map((_, { attribs: { href } }) => href))) {
+                        for (const pattern of urlList) {
+                            if (typeof pattern === 'string') {
+                                const result = RegExp(pattern).test(link);
+                                if (result) {
+                                    localFlag = false;
                                 }
                             }
+                            else {
+                                const url = new URL(link);
+                                let result = true;
+                                for (const [k, v] of Object.entries(pattern)) {
+                                    const localResult = RegExp(v).test(url[k]);
+                                    if (!localResult) {
+                                        result = false;
+                                        break;
+                                    }
+                                }
+                                if (result) {
+                                    localFlag = false;
+                                }
+                            }
+                            if (!localFlag) {
+                                if (core.isDebug()) {
+                                    core.debug(`link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, skip this link`);
+                                }
+                                break;
+                            }
                         }
-                        if (flag) {
+                        if (localFlag) {
+                            flag = true;
                             if (core.isDebug()) {
-                                core.debug(`link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, flag changed to \`true\`, no more testing of remaining links`);
+                                core.debug(`link \`${link}\` does not hit any pattern under mode "${urlMode}", flag changed to \`true\`, no more testing of remaining links`);
                             }
                             break;
                         }
                     }
-                    if (flag) {
-                        break;
+                }
+                else {
+                    for (const link of new Set(linkElements.map((_, { attribs: { href } }) => href))) {
+                        for (const pattern of urlList) {
+                            if (typeof pattern === 'string') {
+                                const result = RegExp(pattern).test(link);
+                                if (result) {
+                                    flag = true;
+                                }
+                            }
+                            else {
+                                const url = new URL(link);
+                                let result = true;
+                                for (const [k, v] of Object.entries(pattern)) {
+                                    const localResult = RegExp(v).test(url[k]);
+                                    if (!localResult) {
+                                        result = false;
+                                        break;
+                                    }
+                                }
+                                if (result) {
+                                    flag = true;
+                                }
+                            }
+                            if (flag) {
+                                if (core.isDebug()) {
+                                    core.debug(`link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, flag changed to \`true\`, no more testing of remaining links`);
+                                }
+                                break;
+                            }
+                        }
                     }
                 }
                 if (!flag) {
@@ -552,10 +599,6 @@ function parseRule(item, appendConfigMap, appendItemParams) {
         cond: is_null,
         pred: pred_2emptystr
     };
-    const undefined2undefined = {
-        cond: is_undefined,
-        pred: nopred
-    };
     const undefined2emptyarr = {
         cond: is_undefined,
         pred: pred_2emptyarr
@@ -566,8 +609,8 @@ function parseRule(item, appendConfigMap, appendItemParams) {
         content: [str2str, null2str],
         author_association: [str2strarr, strarr2strarr],
         regexes: [str2strarr, strarr2strarr, undefined2emptyarr],
-        url_mode: [str2strarr, strarr2strarr, undefined2undefined],
-        url_list: [str2strarr, strarr2strarr, undefined2undefined],
+        url_mode: [str2str],
+        url_list: [str2strarr, strarr2strarr],
         skip_if: [str2strarr, strarr2strarr]
     };
     const itemParams = {
@@ -643,6 +686,9 @@ function parseAllRules(configObject, syncLabels) {
         if (key !== 'labels' && key !== 'comments' && key !== 'default-mode') {
             throw Error(`parseAllRules found unexpected field \`${key}\``);
         }
+    }
+    if (core.isDebug()) {
+        core.debug('configObject: ' + JSON.stringify(configObject));
     }
     const labelParamsObject = 'labels' in configObject ? configObject.labels : [];
     const commentParamsObject = 'comments' in configObject ? configObject.comments : [];

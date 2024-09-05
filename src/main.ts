@@ -63,13 +63,13 @@ interface ICommentRule extends IRuleBase {
   url_list?: (
     | string
     | Partial<
-      Pick<
-        URL,
-        {
-          [K in keyof URL]: URL[K] extends string ? K : never
-        }[keyof URL]
+        Pick<
+          URL,
+          {
+            [K in keyof URL]: URL[K] extends string ? K : never
+          }[keyof URL]
+        >
       >
-    >
   )[]
   url_mode?: 'allow_only' | 'deny'
 }
@@ -252,7 +252,9 @@ async function commentRuleAnalyze(
   const addItemNames: Set<string> = new Set()
   const updateItems: string[] = []
 
-  core.debug("itemMap: " + JSON.stringify(itemMap)) // DEBUG
+  if (core.isDebug()) {
+    core.debug('itemMap: ' + JSON.stringify(itemMap))
+  }
   for (const itemParams of itemMap) {
     const item = itemParams.content ?? ''
     const itemName = itemParams.name
@@ -318,42 +320,90 @@ async function commentRuleAnalyze(
             ])}`
           )
         }
-        for (const link of new Set(
-          linkElements.map((_, { attribs: { href } }) => href)
-        )) {
-          for (const pattern of urlList) {
-            if (typeof pattern === 'string') {
-              const result = RegExp(pattern).test(link)
-              if (
-                (urlMode === 'allow_only' && !result) ||
-                (urlMode === 'deny' && result)
-              ) {
-                flag = true
-              }
-            } else {
-              const url = new URL(link)
-              for (const [k, v] of Object.entries(pattern)) {
-                const result = RegExp(v).test(url[k as keyof typeof pattern])
-                if (
-                  (urlMode === 'allow_only' && !result) ||
-                  (urlMode === 'deny' && result)
-                ) {
-                  flag = true
-                  break
+        if (core.isDebug()) {
+          core.debug(`urlMode is ${urlMode}`)
+        }
+        if (urlMode === 'allow_only') {
+          let localFlag = true
+          for (const link of new Set(
+            linkElements.map((_, { attribs: { href } }) => href)
+          )) {
+            for (const pattern of urlList) {
+              if (typeof pattern === 'string') {
+                const result = RegExp(pattern).test(link)
+                if (result) {
+                  localFlag = false
+                }
+              } else {
+                const url = new URL(link)
+                let result = true
+                for (const [k, v] of Object.entries(pattern)) {
+                  const localResult = RegExp(v).test(
+                    url[k as keyof typeof pattern]
+                  )
+                  if (!localResult) {
+                    result = false
+                    break
+                  }
+                }
+                if (result) {
+                  localFlag = false
                 }
               }
+              if (!localFlag) {
+                if (core.isDebug()) {
+                  core.debug(
+                    `link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, skip this link`
+                  )
+                }
+                break
+              }
             }
-            if (flag) {
+            if (localFlag) {
+              flag = true
               if (core.isDebug()) {
                 core.debug(
-                  `link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, flag changed to \`true\`, no more testing of remaining links`
+                  `link \`${link}\` does not hit any pattern under mode "${urlMode}", flag changed to \`true\`, no more testing of remaining links`
                 )
               }
               break
             }
           }
-          if (flag) {
-            break
+        } else {
+          for (const link of new Set(
+            linkElements.map((_, { attribs: { href } }) => href)
+          )) {
+            for (const pattern of urlList) {
+              if (typeof pattern === 'string') {
+                const result = RegExp(pattern).test(link)
+                if (result) {
+                  flag = true
+                }
+              } else {
+                const url = new URL(link)
+                let result = true
+                for (const [k, v] of Object.entries(pattern)) {
+                  const localResult = RegExp(v).test(
+                    url[k as keyof typeof pattern]
+                  )
+                  if (!localResult) {
+                    result = false
+                    break
+                  }
+                }
+                if (result) {
+                  flag = true
+                }
+              }
+              if (flag) {
+                if (core.isDebug()) {
+                  core.debug(
+                    `link \`${link}\` hits mode "${urlMode}" & pattern ${JSON.stringify(pattern)}, flag changed to \`true\`, no more testing of remaining links`
+                  )
+                }
+                break
+              }
+            }
           }
         }
         if (!flag) {
@@ -745,10 +795,6 @@ function parseRule(
     cond: is_null,
     pred: pred_2emptystr
   }
-  const undefined2undefined: ICondPred = {
-    cond: is_undefined,
-    pred: nopred
-  }
   const undefined2emptyarr: ICondPred = {
     cond: is_undefined,
     pred: pred_2emptyarr
@@ -760,8 +806,8 @@ function parseRule(
     content: [str2str, null2str],
     author_association: [str2strarr, strarr2strarr],
     regexes: [str2strarr, strarr2strarr, undefined2emptyarr],
-    url_mode: [str2strarr, strarr2strarr, undefined2undefined],
-    url_list: [str2strarr, strarr2strarr, undefined2undefined],
+    url_mode: [str2str],
+    url_list: [str2strarr, strarr2strarr],
     skip_if: [str2strarr, strarr2strarr]
   }
   const itemParams: IRuleBase = {
@@ -853,7 +899,9 @@ function parseAllRules(
       throw Error(`parseAllRules found unexpected field \`${key}\``)
     }
   }
-  core.debug("configObject: " + JSON.stringify(configObject)) // DEBUG
+  if (core.isDebug()) {
+    core.debug('configObject: ' + JSON.stringify(configObject))
+  }
 
   const labelParamsObject = 'labels' in configObject ? configObject.labels : []
   const commentParamsObject =
@@ -999,7 +1047,8 @@ async function addComment(
       body
     })
     core.debug(
-      `Add comment \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Add comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
@@ -1022,7 +1071,8 @@ async function updateComment(
       body
     })
     core.debug(
-      `Update comment \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Update comment \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
@@ -1045,7 +1095,8 @@ async function updateIssue(
       body
     })
     core.debug(
-      `Update issue \`${body.split('\n').join('\\n')}\` status ${response.status
+      `Update issue \`${body.split('\n').join('\\n')}\` status ${
+        response.status
       }`
     )
   } catch (error) {
