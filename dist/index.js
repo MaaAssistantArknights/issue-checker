@@ -814,7 +814,15 @@ async function removeLabel(client, issue_number, name) {
 // 发评论前删除自己之前发表的相同内容的评论，避免用户编辑正文后重复提醒堆积
 async function removeDuplicatedComments(client, issue_number, body) {
     try {
-        const login = (await client.rest.users.getAuthenticated()).data.login;
+        // GITHUB_TOKEN 等安装令牌无权查询 /user（403），此时按 Bot 类型识别自己的评论
+        let authenticatedLogin;
+        try {
+            authenticatedLogin = (await client.rest.users.getAuthenticated()).data
+                .login;
+        }
+        catch {
+            authenticatedLogin = undefined;
+        }
         const comments = await client.paginate(client.rest.issues.listComments, {
             owner: github.context.repo.owner,
             repo: github.context.repo.repo,
@@ -822,7 +830,10 @@ async function removeDuplicatedComments(client, issue_number, body) {
             per_page: 100
         });
         for (const comment of comments) {
-            if (comment.user?.login === login && comment.body === body) {
+            if (comment.body === body &&
+                (comment.user?.type === 'Bot' ||
+                    (authenticatedLogin !== undefined &&
+                        comment.user?.login === authenticatedLogin))) {
                 core.info(`Delete previous comment #${comment.id} with the same body`);
                 await client.rest.issues.deleteComment({
                     owner: github.context.repo.owner,

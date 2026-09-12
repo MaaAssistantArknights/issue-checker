@@ -1065,7 +1065,14 @@ async function removeDuplicatedComments(
   body: string
 ): Promise<void> {
   try {
-    const login = (await client.rest.users.getAuthenticated()).data.login
+    // GITHUB_TOKEN 等安装令牌无权查询 /user（403），此时按 Bot 类型识别自己的评论
+    let authenticatedLogin: string | undefined
+    try {
+      authenticatedLogin = (await client.rest.users.getAuthenticated()).data
+        .login
+    } catch {
+      authenticatedLogin = undefined
+    }
     const comments = await client.paginate(client.rest.issues.listComments, {
       owner: github.context.repo.owner,
       repo: github.context.repo.repo,
@@ -1073,7 +1080,12 @@ async function removeDuplicatedComments(
       per_page: 100
     })
     for (const comment of comments) {
-      if (comment.user?.login === login && comment.body === body) {
+      if (
+        comment.body === body &&
+        (comment.user?.type === 'Bot' ||
+          (authenticatedLogin !== undefined &&
+            comment.user?.login === authenticatedLogin))
+      ) {
         core.info(`Delete previous comment #${comment.id} with the same body`)
         await client.rest.issues.deleteComment({
           owner: github.context.repo.owner,
