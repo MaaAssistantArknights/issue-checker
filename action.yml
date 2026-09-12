@@ -24,6 +24,10 @@ inputs:
     description: 'Remove labels from issue if rule does not match'
     required: false
     default: 1
+  exclude-users:
+    description: 'Comma-separated list of users whose comments will not trigger the checker'
+    required: false
+    default: ''
 
 runs:
   using: 'node20'

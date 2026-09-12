@@ -44,10 +44,26 @@ async function run() {
         const notBefore = Date.parse(core.getInput('not-before', { required: false }));
         const includeTitle = parseInt(core.getInput('include-title', { required: false }));
         const syncLabels = parseInt(core.getInput('sync-labels', { required: false }));
+        const excludeUsers = core
+            .getInput('exclude-users', { required: false })
+            .split(',')
+            .map(user => user.trim())
+            .filter(user => user !== '');
         const { event_name: _event_name, issue_number: issue_number, comment_id: comment_id, title: title, body: body, created_at: created_at, author_association: author_association } = getEventInfo();
         const event_name = getModeEvent(_event_name);
         if (event_name === undefined) {
             throw Error(`could not handle event \`${_event_name}\``);
+        }
+        if (event_name === 'issue_comment') {
+            // bot（含本 action 自身的输出）与排除名单用户的评论可能引用 issue 原文，
+            // 对其重新匹配会再次触发规则（如分析 bot 流式更新评论导致重复警告）
+            const commentUser = github.context.payload.comment?.user;
+            if (commentUser?.type === 'Bot' ||
+                (commentUser?.login !== undefined &&
+                    excludeUsers.includes(commentUser.login))) {
+                core.notice(`Comment is created by \`${commentUser?.login}\`, which is excluded. Skipping...`);
+                return;
+            }
         }
         if (core.isDebug()) {
             core.debug(`event_name: ${event_name}`);
@@ -117,6 +133,7 @@ async function run() {
             }
             for (const itemBody of addCommentItems) {
                 core.info(`Comment ${itemBody} to issue #${issue_number}`);
+                await removeDuplicatedComments(client, issue_number, itemBody);
                 addComment(client, issue_number, itemBody);
             }
             if (event_name === 'issue_comment') {
@@ -792,6 +809,31 @@ async function removeLabel(client, issue_number, name) {
     }
     catch (error) {
         core.warning(`Unable to remove label ${name}. (${error})`);
+    }
+}
+// 发评论前删除自己之前发表的相同内容的评论，避免用户编辑正文后重复提醒堆积
+async function removeDuplicatedComments(client, issue_number, body) {
+    try {
+        const login = (await client.rest.users.getAuthenticated()).data.login;
+        const comments = await client.paginate(client.rest.issues.listComments, {
+            owner: github.context.repo.owner,
+            repo: github.context.repo.repo,
+            issue_number,
+            per_page: 100
+        });
+        for (const comment of comments) {
+            if (comment.user?.login === login && comment.body === body) {
+                core.info(`Delete previous comment #${comment.id} with the same body`);
+                await client.rest.issues.deleteComment({
+                    owner: github.context.repo.owner,
+                    repo: github.context.repo.repo,
+                    comment_id: comment.id
+                });
+            }
+        }
+    }
+    catch (error) {
+        core.warning(`Unable to remove duplicated comments. (${error})`);
     }
 }
 async function addComment(client, issue_number, body) {

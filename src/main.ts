@@ -105,6 +105,11 @@ async function run(): Promise<void> {
     const syncLabels: number = parseInt(
       core.getInput('sync-labels', { required: false })
     )
+    const excludeUsers: string[] = core
+      .getInput('exclude-users', { required: false })
+      .split(',')
+      .map(user => user.trim())
+      .filter(user => user !== '')
 
     const {
       event_name: _event_name,
@@ -119,6 +124,24 @@ async function run(): Promise<void> {
     const event_name = getModeEvent(_event_name)
     if (event_name === undefined) {
       throw Error(`could not handle event \`${_event_name}\``)
+    }
+
+    if (event_name === 'issue_comment') {
+      // bot（含本 action 自身的输出）与排除名单用户的评论可能引用 issue 原文，
+      // 对其重新匹配会再次触发规则（如分析 bot 流式更新评论导致重复警告）
+      const commentUser = github.context.payload.comment?.user as
+        | { login?: string; type?: string }
+        | undefined
+      if (
+        commentUser?.type === 'Bot' ||
+        (commentUser?.login !== undefined &&
+          excludeUsers.includes(commentUser.login))
+      ) {
+        core.notice(
+          `Comment is created by \`${commentUser?.login}\`, which is excluded. Skipping...`
+        )
+        return
+      }
     }
 
     if (core.isDebug()) {
@@ -214,6 +237,7 @@ async function run(): Promise<void> {
 
       for (const itemBody of addCommentItems) {
         core.info(`Comment ${itemBody} to issue #${issue_number}`)
+        await removeDuplicatedComments(client, issue_number, itemBody)
         addComment(client, issue_number, itemBody)
       }
 
@@ -1031,6 +1055,35 @@ async function removeLabel(
     core.debug(`Remove label \`${name}\` status ${response.status}`)
   } catch (error) {
     core.warning(`Unable to remove label ${name}. (${error})`)
+  }
+}
+
+// 发评论前删除自己之前发表的相同内容的评论，避免用户编辑正文后重复提醒堆积
+async function removeDuplicatedComments(
+  client: InstanceType<typeof GitHub>,
+  issue_number: number,
+  body: string
+): Promise<void> {
+  try {
+    const login = (await client.rest.users.getAuthenticated()).data.login
+    const comments = await client.paginate(client.rest.issues.listComments, {
+      owner: github.context.repo.owner,
+      repo: github.context.repo.repo,
+      issue_number,
+      per_page: 100
+    })
+    for (const comment of comments) {
+      if (comment.user?.login === login && comment.body === body) {
+        core.info(`Delete previous comment #${comment.id} with the same body`)
+        await client.rest.issues.deleteComment({
+          owner: github.context.repo.owner,
+          repo: github.context.repo.repo,
+          comment_id: comment.id
+        })
+      }
+    }
+  } catch (error) {
+    core.warning(`Unable to remove duplicated comments. (${error})`)
   }
 }
 

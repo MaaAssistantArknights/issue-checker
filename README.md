@@ -126,3 +126,4 @@ Various inputs are defined in [`action.yml`](action.yml) to let you configure th
 | `sync-labels` | Whether or not to remove labels when not match | 1 |
 | `include-title` | Whether or not the title participate in matching | 0 |
 | `not-before` | Any issues prior to this timestamp will be ignored (blank to handle all issues) | N/A |
+| `exclude-users` | Comma-separated list of users whose comments will not trigger the checker (comments by bots are always skipped) | N/A |
